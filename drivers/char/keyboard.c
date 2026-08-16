@@ -99,9 +99,11 @@ static void keyboard_interrupt_handler(registers_t* regs) {
     }
 
     if (ctrl_pressed) {
-        if (scancode == 0x2E) { buffer_enqueue(0x03); return; } // Ctrl+C
-        if (scancode == 0x26) { buffer_enqueue(0x0C); return; } // Ctrl+L
-        if (scancode == 0x20) { buffer_enqueue(0x04); return; } // Ctrl+D
+        char base = scancode_ascii[scancode];
+        if (base >= 'a' && base <= 'z') {
+            buffer_enqueue((uint16_t)(base - 'a' + 1));
+            return;
+        }
     }
 
     bool use_shift = shift_pressed ^ capslock;

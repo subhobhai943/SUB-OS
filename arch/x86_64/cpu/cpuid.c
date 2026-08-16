@@ -4,12 +4,6 @@
 static cpu_info_t global_cpu_info;
 static bool cpu_detected = false;
 
-static inline void cpuid(uint32_t code, uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d) {
-    __asm__ volatile("cpuid"
-                     : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
-                     : "a"(code));
-}
-
 void cpuid_detect(cpu_info_t* info) {
     uint32_t eax, ebx, ecx, edx;
 

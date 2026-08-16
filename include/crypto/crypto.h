@@ -31,7 +31,20 @@ typedef struct {
 void sha256_init(sha256_ctx_t* ctx);
 void sha256_update(sha256_ctx_t* ctx, const void* data, size_t len);
 void sha256_final(uint8_t hash[32], sha256_ctx_t* ctx);
-void sha256_string(const char* str, char output[65]);
+// One-shot hash helpers
+static inline void md5(const void* data, size_t len, uint8_t digest[16]) {
+    md5_ctx_t ctx;
+    md5_init(&ctx);
+    md5_update(&ctx, data, len);
+    md5_final(digest, &ctx);
+}
+
+static inline void sha256(const void* data, size_t len, uint8_t hash[32]) {
+    sha256_ctx_t ctx;
+    sha256_init(&ctx);
+    sha256_update(&ctx, data, len);
+    sha256_final(hash, &ctx);
+}
 
 // PRNG (Cryptographic Pseudo-Random Number Generator)
 void prng_seed(uint64_t seed1, uint64_t seed2);

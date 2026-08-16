@@ -46,9 +46,17 @@ NET_C_SRCS      = $(shell find net -name '*.c' 2>/dev/null)
 CRYPTO_C_SRCS   = $(shell find crypto -name '*.c' 2>/dev/null)
 LIB_C_SRCS      = $(shell find lib -name '*.c' 2>/dev/null)
 USERLAND_C_SRCS = $(shell find userland -name '*.c' 2>/dev/null)
+CERTS_C_SRCS    = $(shell find certs -name '*.c' 2>/dev/null)
+INIT_C_SRCS     = $(shell find init -name '*.c' 2>/dev/null)
+IO_URING_C_SRCS = $(shell find io_uring -name '*.c' 2>/dev/null)
+SECURITY_C_SRCS = $(shell find security -name '*.c' 2>/dev/null)
+USR_C_SRCS      = $(shell find usr -name '*.c' 2>/dev/null)
+VIRT_C_SRCS     = $(shell find virt -name '*.c' 2>/dev/null)
 
 ALL_C_SRCS = $(ARCH_C_SRCS) $(KERNEL_C_SRCS) $(MM_C_SRCS) $(DRIVERS_C_SRCS) \
-             $(FS_C_SRCS) $(NET_C_SRCS) $(CRYPTO_C_SRCS) $(LIB_C_SRCS) $(USERLAND_C_SRCS)
+             $(FS_C_SRCS) $(NET_C_SRCS) $(CRYPTO_C_SRCS) $(LIB_C_SRCS) $(USERLAND_C_SRCS) \
+             $(CERTS_C_SRCS) $(INIT_C_SRCS) $(IO_URING_C_SRCS) $(SECURITY_C_SRCS) \
+             $(USR_C_SRCS) $(VIRT_C_SRCS)
 
 # Object Files Mapping
 C_OBJS   = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))

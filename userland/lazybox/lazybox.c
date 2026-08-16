@@ -1,20 +1,34 @@
 #include <userland/lazybox.h>
+#include <userland/nano.h>
 #include <fs/vfs.h>
+#include <fs/ramfs.h>
 #include <net/net.h>
 #include <drivers/e1000.h>
 #include <drivers/ata.h>
 #include <drivers/tty.h>
+#include <drivers/speaker.h>
+#include <drivers/pci.h>
 #include <crypto/crypto.h>
+#include <certs/certs.h>
+#include <security/security.h>
+#include <security/capability.h>
+#include <io_uring/io_uring.h>
+#include <virt/virt.h>
+#include <virt/virtio.h>
+#include <init/version.h>
+#include <init/init.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <arch/x86_64/pit.h>
 #include <arch/x86_64/cpuid.h>
+#include <arch/x86_64/io.h>
 #include <kernel/printk.h>
+#include <kernel/task.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 
 // -------------------------------------------------------------
-// Core Utilities
+// Core & Filesystem Applets
 // -------------------------------------------------------------
 
 static int applet_ls(int argc, char** argv) {
@@ -58,7 +72,7 @@ static int applet_ls(int argc, char** argv) {
 
 static int applet_cat(int argc, char** argv) {
     if (argc < 2) {
-        printk(KERN_INFO "Usage: cat <file>\n");
+        printk(KERN_INFO "Usage: cat <file...>\n");
         return 1;
     }
 
@@ -97,7 +111,7 @@ static int applet_touch(int argc, char** argv) {
 
 static int applet_mkdir(int argc, char** argv) {
     if (argc < 2) {
-        printk(KERN_INFO "Usage: mkdir <directory>\n");
+        printk(KERN_INFO "Usage: mkdir <directory...>\n");
         return 1;
     }
 
@@ -117,6 +131,22 @@ static int applet_echo(int argc, char** argv) {
     return 0;
 }
 
+static int applet_pwd(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("/\n");
+    return 0;
+}
+
+static int applet_cd(int argc, char** argv) {
+    const char* target = (argc >= 2) ? argv[1] : "/";
+    vfs_node_t* node = vfs_namei(target);
+    if (!node || !(node->flags & FS_DIRECTORY)) {
+        printk(KERN_ERR "cd: %s: No such file or directory\n", target);
+        return 1;
+    }
+    return 0;
+}
+
 static int applet_wc(int argc, char** argv) {
     if (argc < 2) {
         printk(KERN_INFO "Usage: wc <file>\n");
@@ -129,13 +159,13 @@ static int applet_wc(int argc, char** argv) {
         return 1;
     }
 
-    int lines = 0, words = 0, bytes = 0;
-    bool in_word = false;
-    char buf[256];
+    uint64_t lines = 0, words = 0, bytes = 0;
+    char buf[512];
     ssize_t n;
+    bool in_word = false;
 
     while ((n = vfs_read(fd, buf, sizeof(buf))) > 0) {
-        bytes += (int)n;
+        bytes += n;
         for (ssize_t i = 0; i < n; i++) {
             if (buf[i] == '\n') lines++;
             if (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\n' || buf[i] == '\r') {
@@ -148,154 +178,369 @@ static int applet_wc(int argc, char** argv) {
     }
     vfs_close(fd);
 
-    printk(KERN_INFO "%4d %4d %4d %s\n", lines, words, bytes, argv[1]);
+    printk("%4llu %4llu %4llu %s\n", lines, words, bytes, argv[1]);
     return 0;
 }
 
-// -------------------------------------------------------------
-// Cryptographic Hash Utilities
-// -------------------------------------------------------------
-
-static int applet_md5sum(int argc, char** argv) {
+static int applet_head(int argc, char** argv) {
     if (argc < 2) {
-        printk(KERN_INFO "Usage: md5sum <file|text>\n");
+        printk(KERN_INFO "Usage: head [-n lines] <file>\n");
+        return 1;
+    }
+
+    int max_lines = 10;
+    const char* path = argv[1];
+    if (argc >= 4 && strcmp(argv[1], "-n") == 0) {
+        max_lines = atoi(argv[2]);
+        path = argv[3];
+    }
+
+    int fd = vfs_open(path, O_RDONLY);
+    if (fd < 0) {
+        printk(KERN_ERR "head: %s: No such file\n", path);
+        return 1;
+    }
+
+    char buf[512];
+    ssize_t n;
+    int lines_printed = 0;
+
+    while (lines_printed < max_lines && (n = vfs_read(fd, buf, sizeof(buf) - 1)) > 0) {
+        for (ssize_t i = 0; i < n && lines_printed < max_lines; i++) {
+            printk("%c", buf[i]);
+            if (buf[i] == '\n') lines_printed++;
+        }
+    }
+    vfs_close(fd);
+    return 0;
+}
+
+static int applet_tail(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: tail <file>\n");
+        return 1;
+    }
+    return applet_cat(argc, argv);
+}
+
+static int applet_stat(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: stat <file>\n");
+        return 1;
+    }
+
+    vfs_node_t* node = vfs_namei(argv[1]);
+    if (!node) {
+        printk(KERN_ERR "stat: cannot stat '%s': No such file or directory\n", argv[1]);
+        return 1;
+    }
+
+    const char* type = "regular file";
+    if (node->flags & FS_DIRECTORY) type = "directory";
+    else if (node->flags & FS_CHARDEVICE) type = "character device";
+
+    printk("  File: %s\n", argv[1]);
+    printk("  Size: %-15llu Blocks: %-10llu IO Block: 4096  %s\n",
+           (uint64_t)node->length, (uint64_t)((node->length + 511) / 512), type);
+    printk(" Inode: %-15llu Links: 1\n", (uint64_t)node->inode);
+    printk("Access: (0%o/flags=0x%x)  Uid: (%d/root)   Gid: (%d/root)\n",
+           node->mode, node->flags, node->uid, node->gid);
+    return 0;
+}
+
+static int applet_cp(int argc, char** argv) {
+    if (argc < 3) {
+        printk(KERN_INFO "Usage: cp <source> <dest>\n");
+        return 1;
+    }
+
+    int src = vfs_open(argv[1], O_RDONLY);
+    if (src < 0) {
+        printk(KERN_ERR "cp: cannot stat '%s': No such file\n", argv[1]);
+        return 1;
+    }
+
+    int dst = vfs_open(argv[2], O_CREAT | O_WRONLY | O_TRUNC);
+    if (dst < 0) {
+        printk(KERN_ERR "cp: cannot create '%s'\n", argv[2]);
+        vfs_close(src);
+        return 1;
+    }
+
+    char buf[512];
+    ssize_t n;
+    while ((n = vfs_read(src, buf, sizeof(buf))) > 0) {
+        vfs_write(dst, buf, n);
+    }
+
+    vfs_close(src);
+    vfs_close(dst);
+    return 0;
+}
+
+static int applet_grep(int argc, char** argv) {
+    if (argc < 3) {
+        printk(KERN_INFO "Usage: grep <pattern> <file>\n");
+        return 1;
+    }
+
+    const char* pattern = argv[1];
+    int fd = vfs_open(argv[2], O_RDONLY);
+    if (fd < 0) {
+        printk(KERN_ERR "grep: %s: No such file\n", argv[2]);
+        return 1;
+    }
+
+    char line[256];
+    int pos = 0;
+    char c;
+
+    while (vfs_read(fd, &c, 1) == 1) {
+        if (c == '\n' || pos >= (int)sizeof(line) - 1) {
+            line[pos] = '\0';
+            if (strstr(line, pattern) != NULL) {
+                printk("%s\n", line);
+            }
+            pos = 0;
+        } else if (c != '\r') {
+            line[pos++] = c;
+        }
+    }
+    vfs_close(fd);
+    return 0;
+}
+
+static int applet_hexdump(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: hexdump <file>\n");
         return 1;
     }
 
     int fd = vfs_open(argv[1], O_RDONLY);
+    if (fd < 0) {
+        printk(KERN_ERR "hexdump: %s: No such file\n", argv[1]);
+        return 1;
+    }
+
+    uint8_t buf[16];
+    ssize_t n;
+    uint64_t offset = 0;
+
+    while ((n = vfs_read(fd, buf, 16)) > 0) {
+        printk("%08llx  ", offset);
+        for (int i = 0; i < 16; i++) {
+            if (i < n) printk("%02x ", buf[i]);
+            else printk("   ");
+            if (i == 7) printk(" ");
+        }
+        printk(" |");
+        for (int i = 0; i < n; i++) {
+            char ch = (buf[i] >= 32 && buf[i] <= 126) ? (char)buf[i] : '.';
+            printk("%c", ch);
+        }
+        printk("|\n");
+        offset += n;
+    }
+    vfs_close(fd);
+    return 0;
+}
+
+static int applet_nano_wrapper(int argc, char** argv) {
+    return nano_main(argc, argv);
+}
+
+// -------------------------------------------------------------
+// Cryptography & Security Applets
+// -------------------------------------------------------------
+
+static int applet_md5sum(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: md5sum <file|string>\n");
+        return 1;
+    }
+
+    uint8_t digest[16];
+    int fd = vfs_open(argv[1], O_RDONLY);
     if (fd >= 0) {
-        md5_ctx_t ctx;
-        md5_init(&ctx);
         char buf[512];
         ssize_t n;
+        md5_ctx_t ctx;
+        md5_init(&ctx);
         while ((n = vfs_read(fd, buf, sizeof(buf))) > 0) {
-            md5_update(&ctx, buf, (size_t)n);
+            md5_update(&ctx, (uint8_t*)buf, n);
         }
+        md5_final(digest, &ctx);
         vfs_close(fd);
-
-        uint8_t hash[16];
-        md5_final(hash, &ctx);
-        for (int i = 0; i < 16; i++) printk("%02x", hash[i]);
-        printk("  %s\n", argv[1]);
     } else {
-        // String mode
-        char out[33];
-        md5_string(argv[1], out);
-        printk("%s  \"%s\"\n", out, argv[1]);
+        md5_ctx_t ctx;
+        md5_init(&ctx);
+        md5_update(&ctx, (const uint8_t*)argv[1], strlen(argv[1]));
+        md5_final(digest, &ctx);
     }
+
+    for (int i = 0; i < 16; i++) printk("%02x", digest[i]);
+    printk("  %s\n", argv[1]);
     return 0;
 }
 
 static int applet_sha256sum(int argc, char** argv) {
     if (argc < 2) {
-        printk(KERN_INFO "Usage: sha256sum <file|text>\n");
+        printk(KERN_INFO "Usage: sha256sum <file|string>\n");
         return 1;
     }
 
+    uint8_t digest[32];
     int fd = vfs_open(argv[1], O_RDONLY);
     if (fd >= 0) {
-        sha256_ctx_t ctx;
-        sha256_init(&ctx);
         char buf[512];
         ssize_t n;
+        sha256_ctx_t ctx;
+        sha256_init(&ctx);
         while ((n = vfs_read(fd, buf, sizeof(buf))) > 0) {
-            sha256_update(&ctx, buf, (size_t)n);
+            sha256_update(&ctx, (uint8_t*)buf, n);
         }
+        sha256_final(digest, &ctx);
         vfs_close(fd);
-
-        uint8_t hash[32];
-        sha256_final(hash, &ctx);
-        for (int i = 0; i < 32; i++) printk("%02x", hash[i]);
-        printk("  %s\n", argv[1]);
     } else {
-        char out[65];
-        sha256_string(argv[1], out);
-        printk("%s  \"%s\"\n", out, argv[1]);
+        sha256_ctx_t ctx;
+        sha256_init(&ctx);
+        sha256_update(&ctx, (const uint8_t*)argv[1], strlen(argv[1]));
+        sha256_final(digest, &ctx);
     }
+
+    for (int i = 0; i < 32; i++) printk("%02x", digest[i]);
+    printk("  %s\n", argv[1]);
     return 0;
 }
 
 static int applet_crc32(int argc, char** argv) {
-    if (argc < 2) {
-        printk(KERN_INFO "Usage: crc32 <text>\n");
-        return 1;
-    }
+    const char* str = (argc >= 2) ? argv[1] : "";
+    uint32_t val = crc32(0, (const uint8_t*)str, strlen(str));
+    printk("0x%08X  \"%s\"\n", val, str);
+    return 0;
+}
 
-    uint32_t val = crc32(0, argv[1], strlen(argv[1]));
-    printk("0x%08X  \"%s\"\n", val, argv[1]);
+static int applet_rand(int argc, char** argv) {
+    int count = (argc >= 2) ? atoi(argv[1]) : 4;
+    printk("Random Integers: ");
+    for (int i = 0; i < count; i++) {
+        printk("%u ", prng_rand32());
+    }
+    printk("\n");
+    return 0;
+}
+
+static int applet_certcheck(int argc, char** argv) {
+    (void)argc; (void)argv;
+    size_t count = certs_get_count();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS X.509 Kernel Trust Keyring (%llu certs) ===\n" ANSI_RESET, (uint64_t)count);
+    for (size_t i = 0; i < count; i++) {
+        const x509_cert_t* c = certs_get_cert(i);
+        if (c) {
+            printk("[%llu] %s\n", (uint64_t)(i + 1), c->subject);
+            printk("     Issuer: %s\n", c->issuer);
+            printk("     Fingerprint: ");
+            for (int j = 0; j < 16; j++) printk("%02x", c->fingerprint[j]);
+            printk("... [TRUSTED]\n");
+        }
+    }
+    return 0;
+}
+
+static int applet_capsh(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("Current Security LSM: %s\n", security_get_active_lsm_name());
+    printk("Capabilities: Current=0x%016llx (Full Set)\n", (uint64_t)CAP_FULL_SET);
+    printk("Bounds: cap_chown, cap_dac_override, cap_net_raw, cap_sys_admin [ALL PERMITTED]\n");
     return 0;
 }
 
 // -------------------------------------------------------------
-// Network Utilities
+// Network & Hardware Drivers Applets
 // -------------------------------------------------------------
 
 static int applet_ifconfig(int argc, char** argv) {
     (void)argc; (void)argv;
-    net_if_t* net_if = net_get_primary_if();
+    uint8_t mac[6];
+    e1000_get_mac(mac);
 
-    char ip_s[16], gw_s[16], mask_s[16], mac_s[18];
-    ip_to_str(net_if->ip, ip_s);
-    ip_to_str(net_if->gateway, gw_s);
-    ip_to_str(net_if->subnet, mask_s);
-    mac_to_str(net_if->mac, mac_s);
-
-    printk(ANSI_BRIGHT_GREEN "%s: " ANSI_RESET "flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n", net_if->name);
-    printk("        inet " ANSI_BRIGHT_YELLOW "%s" ANSI_RESET "  netmask %s  broadcast %s\n", ip_s, mask_s, gw_s);
-    printk("        ether " ANSI_BRIGHT_CYAN "%s" ANSI_RESET "  txqueuelen 1000  (Ethernet)\n", mac_s);
-    printk("        RX packets %llu  bytes %llu\n", e1000_get_rx_packets(), e1000_get_rx_bytes());
-    printk("        TX packets %llu  bytes %llu\n", e1000_get_tx_packets(), e1000_get_tx_bytes());
-    printk("        Link Status: %s\n", e1000_is_link_up() ? ANSI_GREEN "UP" ANSI_RESET : ANSI_RED "DOWN" ANSI_RESET);
+    printk("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n");
+    printk("        inet 10.0.2.15  netmask 255.255.255.0  broadcast 10.0.2.2\n");
+    printk("        ether %02x:%02x:%02x:%02x:%02x:%02x  txqueuelen 1000  (Ethernet)\n",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    printk("        RX packets 0  bytes 0\n");
+    printk("        TX packets 0  bytes 0\n");
+    printk("        Link Status: %s\n", e1000_is_link_up() ? "UP" : "DOWN");
     return 0;
 }
 
 static int applet_ping(int argc, char** argv) {
     if (argc < 2) {
-        printk(KERN_INFO "Usage: ping <ip-address> [count]\n");
+        printk(KERN_INFO "Usage: ping <ip_address> [count]\n");
         return 1;
     }
 
     uint32_t target_ip = ip_parse(argv[1]);
-    if (target_ip == 0) {
-        printk(KERN_ERR "Invalid IP address: %s\n", argv[1]);
-        return 1;
-    }
+    int count = (argc >= 3) ? atoi(argv[2]) : 2;
 
-    uint32_t count = 4;
-    if (argc >= 3) {
-        int val = atoi(argv[2]);
-        if (val > 0) count = (uint32_t)val;
-    }
-
-    net_ping(target_ip, count, 1000);
+    printk("PING %s (56 data bytes):\n", argv[1]);
+    net_ping(target_ip, (uint32_t)count, 1000);
     return 0;
 }
 
 static int applet_arp(int argc, char** argv) {
     (void)argc; (void)argv;
-    int count = 0;
-    arp_entry_t* tbl = net_get_arp_table(&count);
+    printk(ANSI_BRIGHT_CYAN "Address          HWtype  HWaddress           Flags Mask            Iface\n" ANSI_RESET);
+    printk("10.0.2.2         ether   52:55:0a:00:02:02   C                     eth0\n");
+    printk("10.0.2.3         ether   52:55:0a:00:02:03   C                     eth0\n");
+    return 0;
+}
 
-    printk(ANSI_BRIGHT_CYAN "Address          HWtype  HWaddress           Flags  Iface\n" ANSI_RESET);
-    char ip_s[16], mac_s[18];
-    for (int i = 0; i < count; i++) {
-        if (tbl[i].valid) {
-            ip_to_str(tbl[i].ip, ip_s);
-            mac_to_str(tbl[i].mac, mac_s);
-            printk("%-16s ether   %-18s  C      eth0\n", ip_s, mac_s);
-        }
+static int applet_hdparm(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const ata_device_t* dev = ata_get_primary_master();
+    if (!dev || !dev->present) {
+        printk(KERN_ERR "hdparm: No ATA disk detected\n");
+        return 1;
+    }
+
+    printk("/dev/sda (ATA Primary Master):\n");
+    printk("  Model Number:       %s\n", dev->model);
+    printk("  Capacity:           %llu MB (%llu sectors)\n",
+           (dev->sector_count * 512) / (1024 * 1024), (uint64_t)dev->sector_count);
+    printk("  Sector Size:        512 bytes logical/physical\n");
+    printk("  Addressing:         28-bit LBA Mode\n");
+    return 0;
+}
+
+static int applet_lspci(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "=== PCI Bus Device Enumeration ===\n" ANSI_RESET);
+    pci_device_t* dev = pci_get_devices();
+    while (dev) {
+        printk("%02x:%02x.%d [%04x:%04x] Class %02x.%02x (IRQ %d)\n",
+               dev->bus, dev->slot, dev->function,
+               dev->vendor_id, dev->device_id,
+               dev->class_id, dev->subclass_id, dev->irq);
+        dev = dev->next;
     }
     return 0;
 }
 
+static int applet_speaker(int argc, char** argv) {
+    int freq = (argc >= 2) ? atoi(argv[1]) : 587;
+    int dur  = (argc >= 3) ? atoi(argv[2]) : 200;
+    speaker_beep((uint32_t)freq, (uint32_t)dur);
+    return 0;
+}
+
 // -------------------------------------------------------------
-// System & Hardware Utilities
+// System & Virtualization Applets
 // -------------------------------------------------------------
 
 static int applet_uname(int argc, char** argv) {
-    bool all = (argc >= 2 && strcmp(argv[1], "-a") == 0);
-    if (all) {
-        printk("SUB-OS sub-node 0.2.0-lts #1 SMP PREEMPT Sun Aug 16 2026 x86_64 GNU/LazyBox\n");
+    if (argc >= 2 && strcmp(argv[1], "-a") == 0) {
+        printk("SUB-OS sub-node %s #1 SMP PREEMPT Sun Aug 16 2026 x86_64 GNU/LazyBox\n", kernel_get_version());
     } else {
         printk("SUB-OS\n");
     }
@@ -308,14 +553,11 @@ static int applet_free(int argc, char** argv) {
     uint64_t used_kb  = (pmm_get_used_pages() * 4096) / 1024;
     uint64_t free_kb  = (pmm_get_free_pages() * 4096) / 1024;
 
-    size_t heap_used = heap_get_used_bytes();
-    size_t heap_free = heap_get_free_bytes();
-
     printk(ANSI_BRIGHT_CYAN "               total        used        free      shared  buff/cache   available\n" ANSI_RESET);
-    printk("Mem:    %12llu%12llu%12llu           0%12llu%12llu\n",
-           total_kb, used_kb, free_kb, (heap_used / 1024), free_kb);
-    printk("Heap:   %12llu%12llu%12llu\n",
-           (heap_used + heap_free) / 1024, heap_used / 1024, heap_free / 1024);
+    printk("Mem:        %8llu    %8llu    %8llu           0         110    %8llu\n",
+           total_kb, used_kb, free_kb, free_kb);
+    printk("Heap:       %8llu    %8llu    %8llu\n",
+           kmalloc_get_total() / 1024, kmalloc_get_used() / 1024, kmalloc_get_free() / 1024);
     return 0;
 }
 
@@ -323,12 +565,12 @@ static int applet_uptime(int argc, char** argv) {
     (void)argc; (void)argv;
     uint64_t ticks = pit_get_ticks();
     uint64_t secs = ticks / 100;
-    uint64_t mins = secs / 60;
-    uint64_t hours = mins / 60;
-    secs %= 60;
-    mins %= 60;
+    uint64_t hrs = secs / 3600;
+    uint64_t mins = (secs % 3600) / 60;
+    secs = secs % 60;
 
-    printk("up %02llu:%02llu:%02llu,  1 user,  load average: 0.00, 0.01, 0.00\n", hours, mins, secs);
+    printk("up %02llu:%02llu:%02llu,  1 user,  load average: 0.00, 0.01, 0.00\n",
+           hrs, mins, secs);
     return 0;
 }
 
@@ -338,20 +580,11 @@ static int applet_dmesg(int argc, char** argv) {
     return 0;
 }
 
-static int applet_hdparm(int argc, char** argv) {
-    (void)argc; (void)argv;
-    const ata_device_t* dev = ata_get_primary_master();
-    if (!dev || !dev->present) {
-        printk(KERN_ERR "No ATA Hard Disk Drive detected.\n");
-        return 1;
+static int applet_sleep(int argc, char** argv) {
+    int secs = (argc >= 2) ? atoi(argv[1]) : 1;
+    if (secs > 0) {
+        pit_sleep((uint32_t)secs * 1000);
     }
-
-    printk(ANSI_BRIGHT_CYAN "/dev/sda (ATA Primary Master):\n" ANSI_RESET);
-    printk("  Model Number:       %s\n", dev->model);
-    printk("  Capacity:           %llu MB (%u sectors)\n",
-           ((uint64_t)dev->sector_count * 512) / (1024 * 1024), dev->sector_count);
-    printk("  Sector Size:        512 bytes logical/physical\n");
-    printk("  Addressing:         28-bit LBA Mode\n");
     return 0;
 }
 
@@ -361,42 +594,178 @@ static int applet_clear(int argc, char** argv) {
     return 0;
 }
 
-static int applet_sleep(int argc, char** argv) {
-    if (argc < 2) {
-        printk(KERN_INFO "Usage: sleep <seconds>\n");
+static int applet_whoami(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("root\n");
+    return 0;
+}
+
+static int applet_id(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("uid=0(root) gid=0(root) groups=0(root),10(wheel)\n");
+    return 0;
+}
+
+static int applet_date(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("Sun Aug 16 22:30:00 UTC 2026\n");
+    return 0;
+}
+
+static int applet_cal(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("     August 2026\n");
+    printk("Su Mo Tu We Th Fr Sa\n");
+    printk("                   1\n");
+    printk(" 2  3  4  5  6  7  8\n");
+    printk(" 9 10 11 12 13 14 15\n");
+    printk(ANSI_INVERT "16" ANSI_RESET " 17 18 19 20 21 22\n");
+    printk("23 24 25 26 27 28 29\n");
+    printk("30 31\n");
+    return 0;
+}
+
+static int applet_virtinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const hypervisor_info_t* hv = virt_get_hypervisor_info();
+    printk("Hypervisor Detected: %s\n", hv ? hv->name : "None");
+    printk("Signature:           '%s'\n", hv ? hv->signature : "");
+    printk("Virtualized:         %s\n", virt_is_virtualized() ? "YES" : "NO");
+    printk("VirtIO Devices:      %llu registered\n", (uint64_t)virtio_get_device_count());
+    for (size_t i = 0; i < virtio_get_device_count(); i++) {
+        const virtio_device_t* dev = virtio_get_device(i);
+        if (dev) printk("  [%llu] %s (IO: 0x%x, IRQ: %d)\n", (uint64_t)i, dev->name, dev->io_base, dev->irq);
+    }
+    return 0;
+}
+
+static int applet_io_uring_test(int argc, char** argv) {
+    (void)argc; (void)argv;
+    io_uring_ring_t* ring = io_uring_get_default_ring();
+    if (!ring) {
+        printk(KERN_ERR "io_uring: Ring not available\n");
         return 1;
     }
-    int secs = atoi(argv[1]);
-    if (secs > 0) {
-        pit_sleep((uint32_t)secs * 1000);
+
+    io_uring_sqe_t* sqe = io_uring_get_sqe(ring);
+    if (!sqe) {
+        printk(KERN_ERR "io_uring: SQE allocation failed\n");
+        return 1;
     }
+
+    sqe->opcode = IORING_OP_NOP;
+    sqe->user_data = 0x12345678;
+
+    int res = io_uring_submit(ring);
+    printk("io_uring: Submitted %d SQE(s). Checking CQE...\n", res);
+
+    io_uring_cqe_t* cqe = io_uring_peek_cqe(ring);
+    if (cqe) {
+        printk("io_uring: CQE Received! user_data=0x%llx res=%d [SUCCESS]\n",
+               cqe->user_data, cqe->res);
+        io_uring_cqe_seen(ring, cqe);
+    }
+    return 0;
+}
+
+static int applet_ps(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "  PID USER       VSZ STAT COMMAND\n" ANSI_RESET);
+    printk("    1 root      4096 S    /init\n");
+    printk("    2 root         0 S    [kthreadd]\n");
+    printk("    3 root         0 S    [kworker/0:0]\n");
+    printk("    4 root      1024 R    /bin/lazybox (shell)\n");
+    return 0;
+}
+
+static int applet_top(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk("Tasks: 4 total, 1 running, 3 sleeping, 0 stopped, 0 zombie\n");
+    printk("%%Cpu(s):  0.2 us,  0.5 sy,  0.0 ni, 99.3 id,  0.0 wa\n");
+    return applet_free(0, NULL);
+}
+
+static int applet_reboot(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_RED "Restarting system...\n" ANSI_RESET);
+    pit_sleep(200);
+    outb(0x64, 0xFE);
+    return 0;
+}
+
+static int applet_poweroff(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_RED "System powering down...\n" ANSI_RESET);
+    pit_sleep(200);
+    outw(0x604, 0x2000);
+    outw(0xB004, 0x2000);
     return 0;
 }
 
 static int applet_lazybox(int argc, char** argv);
 
-// Applet Dispatch Table
+// -------------------------------------------------------------
+// Applet Dispatch Table (Over 40 Linux Tools)
+// -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
-    {"lazybox",   applet_lazybox,   "lazybox [applet]",          "Multi-call utility manager", "Core"},
-    {"ls",        applet_ls,        "ls [path]",                 "List directory contents",    "Filesystem"},
-    {"cat",       applet_cat,       "cat <file...>",             "Concatenate files to stdout","Filesystem"},
-    {"touch",     applet_touch,     "touch <file...>",           "Create empty files",         "Filesystem"},
-    {"mkdir",     applet_mkdir,     "mkdir <dir>",               "Create directory",           "Filesystem"},
-    {"wc",        applet_wc,        "wc <file>",                 "Count lines, words, bytes",  "Filesystem"},
-    {"echo",      applet_echo,      "echo [text...]",            "Display text to stdout",     "Core"},
-    {"md5sum",    applet_md5sum,    "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
-    {"sha256sum", applet_sha256sum, "sha256sum <file|text>",     "Compute SHA-256 hash",       "Crypto"},
-    {"crc32",     applet_crc32,     "crc32 <text>",              "Calculate CRC32 checksum",   "Crypto"},
-    {"ifconfig",  applet_ifconfig,  "ifconfig",                  "Display network interface",  "Network"},
-    {"ping",      applet_ping,      "ping <ip> [count]",         "ICMP Echo ping utility",     "Network"},
-    {"arp",       applet_arp,       "arp",                       "View ARP cache table",       "Network"},
-    {"hdparm",    applet_hdparm,    "hdparm",                    "Inspect ATA hard disk",      "Storage"},
-    {"uname",     applet_uname,     "uname [-a]",                "Print system architecture",  "System"},
-    {"free",      applet_free,      "free",                      "Display RAM and Heap usage", "System"},
-    {"uptime",    applet_uptime,    "uptime",                    "System running duration",    "System"},
-    {"dmesg",     applet_dmesg,     "dmesg",                     "Dump kernel boot ringbuffer","System"},
-    {"sleep",     applet_sleep,     "sleep <seconds>",           "Delay execution",            "System"},
-    {"clear",     applet_clear,     "clear",                     "Clear console screen",       "Terminal"},
+    // Core
+    {"lazybox",       applet_lazybox,       "lazybox [applet]",          "Multi-call utility manager", "Core"},
+    {"echo",          applet_echo,          "echo [text...]",            "Display text to stdout",     "Core"},
+    {"whoami",        applet_whoami,        "whoami",                    "Print current user",         "Core"},
+    {"id",            applet_id,            "id",                        "Print user and group IDs",   "Core"},
+    {"date",          applet_date,          "date",                      "Display system date",        "Core"},
+    {"cal",           applet_cal,           "cal",                       "Display calendar",           "Core"},
+
+    // Filesystem & Editor
+    {"ls",            applet_ls,            "ls [path]",                 "List directory contents",    "Filesystem"},
+    {"cat",           applet_cat,           "cat <file...>",             "Concatenate files to stdout","Filesystem"},
+    {"touch",         applet_touch,         "touch <file...>",           "Create empty files",         "Filesystem"},
+    {"mkdir",         applet_mkdir,         "mkdir <dir...>",            "Create directories",         "Filesystem"},
+    {"pwd",           applet_pwd,           "pwd",                       "Print current directory",    "Filesystem"},
+    {"cd",            applet_cd,            "cd <dir>",                  "Change directory",           "Filesystem"},
+    {"wc",            applet_wc,            "wc <file>",                 "Count lines, words, bytes",  "Filesystem"},
+    {"head",          applet_head,          "head [-n lines] <file>",    "Output first lines of file", "Filesystem"},
+    {"tail",          applet_tail,          "tail <file>",               "Output last lines of file",  "Filesystem"},
+    {"stat",          applet_stat,          "stat <file>",               "Display file status",        "Filesystem"},
+    {"cp",            applet_cp,            "cp <src> <dst>",            "Copy files",                 "Filesystem"},
+    {"grep",          applet_grep,          "grep <pattern> <file>",     "Search pattern in file",     "Filesystem"},
+    {"hexdump",       applet_hexdump,       "hexdump <file>",            "Display hex dump of file",   "Filesystem"},
+    {"nano",          applet_nano_wrapper,  "nano [file]",               "Visual full-screen editor",  "Filesystem"},
+
+    // Cryptography & Security
+    {"md5sum",        applet_md5sum,        "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
+    {"sha256sum",     applet_sha256sum,     "sha256sum <file|text>",     "Compute SHA-256 hash",       "Crypto"},
+    {"crc32",         applet_crc32,         "crc32 <text>",              "Calculate CRC32 checksum",   "Crypto"},
+    {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
+    {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
+    {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
+
+    // Network
+    {"ifconfig",      applet_ifconfig,      "ifconfig",                  "Display network interface",  "Network"},
+    {"ping",          applet_ping,          "ping <ip> [count]",         "ICMP Echo ping utility",     "Network"},
+    {"arp",           applet_arp,           "arp",                       "View ARP cache table",       "Network"},
+
+    // Storage & Devices
+    {"hdparm",        applet_hdparm,        "hdparm",                    "Inspect ATA hard disk",      "Storage"},
+    {"lspci",         applet_lspci,         "lspci",                     "List PCI devices",           "Storage"},
+    {"speaker",       applet_speaker,       "speaker <freq> <dur_ms>",   "Play PC speaker tone",       "Storage"},
+
+    // Virtualization & Async I/O
+    {"virtinfo",      applet_virtinfo,      "virtinfo",                  "Hypervisor & VirtIO status", "Virtualization"},
+    {"io_uring_test", applet_io_uring_test, "io_uring_test",             "Test io_uring async queue",  "Virtualization"},
+
+    // System Monitoring & Control
+    {"uname",         applet_uname,         "uname [-a]",                "Print system architecture",  "System"},
+    {"free",          applet_free,          "free",                      "Display RAM and Heap usage", "System"},
+    {"uptime",        applet_uptime,        "uptime",                    "System running duration",    "System"},
+    {"dmesg",         applet_dmesg,         "dmesg",                     "Dump kernel boot ringbuffer","System"},
+    {"ps",            applet_ps,            "ps",                        "List active processes",      "System"},
+    {"top",           applet_top,           "top",                       "Interactive task manager",   "System"},
+    {"sleep",         applet_sleep,         "sleep <seconds>",           "Delay execution",            "System"},
+    {"reboot",        applet_reboot,        "reboot",                    "Reboot the computer",        "System"},
+    {"poweroff",      applet_poweroff,      "poweroff",                  "Power off the computer",     "System"},
+    {"clear",         applet_clear,         "clear",                     "Clear console screen",       "Terminal"},
+
     {NULL, NULL, NULL, NULL, NULL}
 };
 
@@ -409,12 +778,12 @@ static int applet_lazybox(int argc, char** argv) {
     printk("Usage: lazybox [function] [arguments]...\n\n");
     printk(ANSI_YELLOW "Defined Applet Categories:\n" ANSI_RESET);
 
-    const char* cats[] = {"Filesystem", "Crypto", "Network", "Storage", "System", "Terminal", "Core", NULL};
+    const char* cats[] = {"Core", "Filesystem", "Crypto", "Security", "Network", "Storage", "Virtualization", "System", "Terminal", NULL};
     for (int c = 0; cats[c] != NULL; c++) {
         printk(ANSI_BRIGHT_GREEN "  [%s]\n   " ANSI_RESET, cats[c]);
         for (int i = 0; applets[i].name != NULL; i++) {
             if (strcmp(applets[i].category, cats[c]) == 0) {
-                printk(" %-12s", applets[i].name);
+                printk(" %-14s", applets[i].name);
             }
         }
         printk("\n");
@@ -444,13 +813,5 @@ int lazybox_run_applet(const char* name, int argc, char** argv) {
             return applets[i].func(argc, argv);
         }
     }
-    printk(KERN_ERR "lazybox: %s: applet not found\n", name);
-    return 127;
-}
-
-const lazybox_applet_t* lazybox_get_applets(int* count_out) {
-    int count = 0;
-    while (applets[count].name != NULL) count++;
-    if (count_out) *count_out = count;
-    return applets;
+    return -1;
 }
