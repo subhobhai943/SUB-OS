@@ -16,6 +16,8 @@ BOOT_DIR  = boot
 
 # Target Architecture Flags
 CFLAGS = -ffreestanding \
+         -fno-pie \
+         -fno-pic \
          -mno-red-zone \
          -mno-mmx \
          -mno-sse \
@@ -31,7 +33,7 @@ CFLAGS = -ffreestanding \
 ASMFLAGS_ELF  = -f elf64
 ASMFLAGS_BOOT = -f bin -I$(BOOT_DIR)/
 
-LDFLAGS = -nostdlib -T linker.ld
+LDFLAGS = -nostdlib -no-pie -T linker.ld
 
 # Source Files Discovery
 ARCH_C_SRCS     = $(shell find arch -name '*.c' 2>/dev/null)

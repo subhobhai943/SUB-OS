@@ -43,6 +43,7 @@ static ssize_t proc_meminfo_read(vfs_node_t* node, off_t offset, size_t size, ui
     char text[512];
     int len = sprintf(text,
         "MemTotal:       %8llu kB\n"
+        "MemUsed:        %8llu kB\n"
         "MemFree:        %8llu kB\n"
         "MemAvailable:   %8llu kB\n"
         "Buffers:               0 kB\n"
@@ -50,11 +51,11 @@ static ssize_t proc_meminfo_read(vfs_node_t* node, off_t offset, size_t size, ui
         "HeapTotal:      %8llu kB\n"
         "HeapUsed:       %8llu kB\n"
         "HeapFree:       %8llu kB\n",
-        total_kb, free_kb, free_kb,
-        (heap_get_used_bytes() / 1024),
-        heap_get_total_bytes() / 1024,
-        heap_get_used_bytes() / 1024,
-        heap_get_free_bytes() / 1024);
+        total_kb, used_kb, free_kb, free_kb,
+        kmalloc_get_used() / 1024,
+        kmalloc_get_total() / 1024,
+        kmalloc_get_used() / 1024,
+        kmalloc_get_free() / 1024);
 
     if (offset >= len) return 0;
     if (offset + size > (size_t)len) size = len - offset;
