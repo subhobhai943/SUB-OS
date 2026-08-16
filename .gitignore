@@ -1,0 +1,10 @@
+build/
+*.bin
+*.img
+*.elf
+*.o
+*.iso
+*.log
+*.tmp
+.DS_Store
+.system_generated/
