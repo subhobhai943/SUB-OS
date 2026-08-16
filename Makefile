@@ -53,10 +53,14 @@ SECURITY_C_SRCS = $(shell find security -name '*.c' 2>/dev/null)
 USR_C_SRCS      = $(shell find usr -name '*.c' 2>/dev/null)
 VIRT_C_SRCS     = $(shell find virt -name '*.c' 2>/dev/null)
 
+BLOCK_C_SRCS    = $(shell find block -name '*.c' 2>/dev/null)
+IPC_C_SRCS      = $(shell find ipc -name '*.c' 2>/dev/null)
+SOUND_C_SRCS    = $(shell find sound -name '*.c' 2>/dev/null)
+
 ALL_C_SRCS = $(ARCH_C_SRCS) $(KERNEL_C_SRCS) $(MM_C_SRCS) $(DRIVERS_C_SRCS) \
              $(FS_C_SRCS) $(NET_C_SRCS) $(CRYPTO_C_SRCS) $(LIB_C_SRCS) $(USERLAND_C_SRCS) \
              $(CERTS_C_SRCS) $(INIT_C_SRCS) $(IO_URING_C_SRCS) $(SECURITY_C_SRCS) \
-             $(USR_C_SRCS) $(VIRT_C_SRCS)
+             $(USR_C_SRCS) $(VIRT_C_SRCS) $(BLOCK_C_SRCS) $(IPC_C_SRCS) $(SOUND_C_SRCS)
 
 # Object Files Mapping
 C_OBJS   = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))

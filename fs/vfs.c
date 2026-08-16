@@ -111,6 +111,23 @@ int vfs_open(const char* path, uint32_t flags) {
     return -1; // Out of file descriptors
 }
 
+int vfs_open_node(vfs_node_t* node, uint32_t flags) {
+    if (!node) return -1;
+    if (node->open) {
+        if (node->open(node, flags) != 0) return -1;
+    }
+
+    for (int fd = 3; fd < MAX_OPEN_FILES; fd++) {
+        if (!file_descriptors[fd].node) {
+            file_descriptors[fd].node = node;
+            file_descriptors[fd].offset = 0;
+            file_descriptors[fd].flags = flags;
+            return fd;
+        }
+    }
+    return -1;
+}
+
 ssize_t vfs_read(int fd, void* buffer, size_t size) {
     if (fd < 0 || fd >= MAX_OPEN_FILES || !file_descriptors[fd].node) return -1;
 

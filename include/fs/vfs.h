@@ -72,6 +72,7 @@ typedef struct {
 void vfs_init(void);
 vfs_node_t* vfs_namei(const char* path);
 int vfs_open(const char* path, uint32_t flags);
+int vfs_open_node(vfs_node_t* node, uint32_t flags);
 ssize_t vfs_read(int fd, void* buffer, size_t size);
 ssize_t vfs_write(int fd, const void* buffer, size_t size);
 off_t vfs_lseek(int fd, off_t offset, int whence);

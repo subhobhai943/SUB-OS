@@ -3,11 +3,17 @@
 #include <fs/vfs.h>
 #include <fs/ramfs.h>
 #include <net/net.h>
+#include <net/dns.h>
+#include <net/dhcp.h>
 #include <drivers/e1000.h>
 #include <drivers/ata.h>
 #include <drivers/tty.h>
 #include <drivers/speaker.h>
 #include <drivers/pci.h>
+#include <drivers/rtc.h>
+#include <drivers/mouse.h>
+#include <sound/sound.h>
+#include <sound/tts.h>
 #include <crypto/crypto.h>
 #include <certs/certs.h>
 #include <security/security.h>
@@ -17,13 +23,15 @@
 #include <virt/virtio.h>
 #include <init/version.h>
 #include <init/init.h>
+#include <kernel/module.h>
+#include <kernel/task.h>
+#include <ipc/ipc.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <arch/x86_64/pit.h>
 #include <arch/x86_64/cpuid.h>
 #include <arch/x86_64/io.h>
 #include <kernel/printk.h>
-#include <kernel/task.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 
@@ -372,10 +380,7 @@ static int applet_md5sum(int argc, char** argv) {
         md5_final(digest, &ctx);
         vfs_close(fd);
     } else {
-        md5_ctx_t ctx;
-        md5_init(&ctx);
-        md5_update(&ctx, (const uint8_t*)argv[1], strlen(argv[1]));
-        md5_final(digest, &ctx);
+        md5((const uint8_t*)argv[1], strlen(argv[1]), digest);
     }
 
     for (int i = 0; i < 16; i++) printk("%02x", digest[i]);
@@ -402,10 +407,7 @@ static int applet_sha256sum(int argc, char** argv) {
         sha256_final(digest, &ctx);
         vfs_close(fd);
     } else {
-        sha256_ctx_t ctx;
-        sha256_init(&ctx);
-        sha256_update(&ctx, (const uint8_t*)argv[1], strlen(argv[1]));
-        sha256_final(digest, &ctx);
+        sha256((const uint8_t*)argv[1], strlen(argv[1]), digest);
     }
 
     for (int i = 0; i < 32; i++) printk("%02x", digest[i]);
@@ -456,6 +458,82 @@ static int applet_capsh(int argc, char** argv) {
 }
 
 // -------------------------------------------------------------
+// Audio & Text-to-Speech Applets
+// -------------------------------------------------------------
+
+static int applet_tts(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: tts <text to synthesize>\n");
+        tts_speak("hello sub os");
+        return 0;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        tts_speak(argv[i]);
+        if (i + 1 < argc) tts_speak(" ");
+    }
+    return 0;
+}
+
+static int applet_alsamixer(int argc, char** argv) {
+    (void)argc; (void)argv;
+    sound_device_t* dev = sound_get_default_device();
+    printk(ANSI_BRIGHT_CYAN "=== ALSA Sound Architecture & Mixer Control ===\n" ANSI_RESET);
+    if (dev) {
+        printk("Card: %s\n", dev->name);
+        printk("Sample Rate: %u Hz | Channels: %d | Depth: %d-bit\n",
+               dev->sample_rate, dev->channels, dev->bits_per_sample);
+        printk("Master Volume: [||||||||||||||||||||] %d%%\n", dev->volume);
+    } else {
+        printk("PC Speaker Synthesizer: Active (1193180 Hz base timer)\n");
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------
+// Kernel Modules & Dynamic Loading Applets
+// -------------------------------------------------------------
+
+static int applet_lsmod(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "Module                  Size  Used by\n" ANSI_RESET);
+    size_t count = module_get_count();
+    for (size_t i = 0; i < count; i++) {
+        const kernel_module_t* m = module_get(i);
+        if (m && m->loaded) {
+            printk("%-20s %8llu  0 [Live]\n", m->name, (uint64_t)m->size);
+        }
+    }
+    return 0;
+}
+
+static int applet_insmod(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: insmod <module_name>\n");
+        return 1;
+    }
+    if (module_load(argv[1], NULL, NULL, 8192) == 0) {
+        printk(KERN_INFO "Module '%s' loaded successfully\n", argv[1]);
+        return 0;
+    }
+    printk(KERN_ERR "insmod: failed to insert module '%s'\n", argv[1]);
+    return 1;
+}
+
+static int applet_rmmod(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: rmmod <module_name>\n");
+        return 1;
+    }
+    if (module_unload(argv[1]) == 0) {
+        printk(KERN_INFO "Module '%s' unloaded successfully\n", argv[1]);
+        return 0;
+    }
+    printk(KERN_ERR "rmmod: failed to remove module '%s'\n", argv[1]);
+    return 1;
+}
+
+// -------------------------------------------------------------
 // Network & Hardware Drivers Applets
 // -------------------------------------------------------------
 
@@ -493,6 +571,21 @@ static int applet_arp(int argc, char** argv) {
     printk(ANSI_BRIGHT_CYAN "Address          HWtype  HWaddress           Flags Mask            Iface\n" ANSI_RESET);
     printk("10.0.2.2         ether   52:55:0a:00:02:02   C                     eth0\n");
     printk("10.0.2.3         ether   52:55:0a:00:02:03   C                     eth0\n");
+    return 0;
+}
+
+static int applet_dhclient(int argc, char** argv) {
+    (void)argc; (void)argv;
+    return dhcp_request_lease();
+}
+
+static int applet_nslookup(int argc, char** argv) {
+    const char* host = (argc >= 2) ? argv[1] : "google.com";
+    uint32_t ip = dns_resolve(host);
+    char ip_buf[16];
+    ip_to_str(ip, ip_buf);
+    printk("Server:         10.0.2.3\nAddress:        10.0.2.3#53\n\nNon-authoritative answer:\nName:   %s\nAddress: %s\n",
+           host, ip_buf);
     return 0;
 }
 
@@ -534,6 +627,15 @@ static int applet_speaker(int argc, char** argv) {
     return 0;
 }
 
+static int applet_mouse(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const mouse_state_t* m = mouse_get_state();
+    printk("Mouse State: X=%d, Y=%d, Left=%s, Right=%s, Mid=%s\n",
+           m->x, m->y, m->left_btn ? "ON" : "OFF",
+           m->right_btn ? "ON" : "OFF", m->middle_btn ? "ON" : "OFF");
+    return 0;
+}
+
 // -------------------------------------------------------------
 // System & Virtualization Applets
 // -------------------------------------------------------------
@@ -544,6 +646,14 @@ static int applet_uname(int argc, char** argv) {
     } else {
         printk("SUB-OS\n");
     }
+    return 0;
+}
+
+static int applet_date(int argc, char** argv) {
+    (void)argc; (void)argv;
+    char date_buf[64];
+    rtc_format_string(date_buf, sizeof(date_buf));
+    printk("%s\n", date_buf);
     return 0;
 }
 
@@ -606,12 +716,6 @@ static int applet_id(int argc, char** argv) {
     return 0;
 }
 
-static int applet_date(int argc, char** argv) {
-    (void)argc; (void)argv;
-    printk("Sun Aug 16 22:30:00 UTC 2026\n");
-    return 0;
-}
-
 static int applet_cal(int argc, char** argv) {
     (void)argc; (void)argv;
     printk("     August 2026\n");
@@ -622,6 +726,17 @@ static int applet_cal(int argc, char** argv) {
     printk(ANSI_INVERT "16" ANSI_RESET " 17 18 19 20 21 22\n");
     printk("23 24 25 26 27 28 29\n");
     printk("30 31\n");
+    return 0;
+}
+
+static int applet_ipcs(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "------ Message Queues --------\n" ANSI_RESET);
+    printk("key        msqid      owner      perms      used-bytes   messages\n");
+    printk(ANSI_BRIGHT_CYAN "------ Shared Memory Segments --------\n" ANSI_RESET);
+    printk("key        shmid      owner      perms      bytes        nattch\n");
+    printk(ANSI_BRIGHT_CYAN "------ Semaphore Arrays --------\n" ANSI_RESET);
+    printk("key        semid      owner      perms      nsems\n");
     return 0;
 }
 
@@ -687,7 +802,7 @@ static int applet_top(int argc, char** argv) {
 
 static int applet_reboot(int argc, char** argv) {
     (void)argc; (void)argv;
-    printk(ANSI_BRIGHT_RED "Restarting system...\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_RED "Restarting system via ACPI/8042...\n" ANSI_RESET);
     pit_sleep(200);
     outb(0x64, 0xFE);
     return 0;
@@ -695,7 +810,7 @@ static int applet_reboot(int argc, char** argv) {
 
 static int applet_poweroff(int argc, char** argv) {
     (void)argc; (void)argv;
-    printk(ANSI_BRIGHT_RED "System powering down...\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_RED "System powering down via ACPI S5...\n" ANSI_RESET);
     pit_sleep(200);
     outw(0x604, 0x2000);
     outw(0xB004, 0x2000);
@@ -705,7 +820,7 @@ static int applet_poweroff(int argc, char** argv) {
 static int applet_lazybox(int argc, char** argv);
 
 // -------------------------------------------------------------
-// Applet Dispatch Table (Over 40 Linux Tools)
+// Applet Dispatch Table (Over 50 Linux Tools)
 // -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
     // Core
@@ -713,7 +828,7 @@ static const lazybox_applet_t applets[] = {
     {"echo",          applet_echo,          "echo [text...]",            "Display text to stdout",     "Core"},
     {"whoami",        applet_whoami,        "whoami",                    "Print current user",         "Core"},
     {"id",            applet_id,            "id",                        "Print user and group IDs",   "Core"},
-    {"date",          applet_date,          "date",                      "Display system date",        "Core"},
+    {"date",          applet_date,          "date",                      "Display CMOS RTC date",      "Core"},
     {"cal",           applet_cal,           "cal",                       "Display calendar",           "Core"},
 
     // Filesystem & Editor
@@ -732,6 +847,15 @@ static const lazybox_applet_t applets[] = {
     {"hexdump",       applet_hexdump,       "hexdump <file>",            "Display hex dump of file",   "Filesystem"},
     {"nano",          applet_nano_wrapper,  "nano [file]",               "Visual full-screen editor",  "Filesystem"},
 
+    // Sound & Voice Synthesis
+    {"tts",           applet_tts,           "tts <text>",                "Phonetic formant voice synth","Sound"},
+    {"alsamixer",     applet_alsamixer,     "alsamixer",                 "Audio control & mixer",      "Sound"},
+
+    // Kernel Modules & Dynamic Loading
+    {"lsmod",         applet_lsmod,         "lsmod",                     "Show kernel module status",  "Kernel"},
+    {"insmod",        applet_insmod,        "insmod <mod>",              "Insert kernel module",       "Kernel"},
+    {"rmmod",         applet_rmmod,         "rmmod <mod>",               "Remove kernel module",       "Kernel"},
+
     // Cryptography & Security
     {"md5sum",        applet_md5sum,        "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
     {"sha256sum",     applet_sha256sum,     "sha256sum <file|text>",     "Compute SHA-256 hash",       "Crypto"},
@@ -739,16 +863,20 @@ static const lazybox_applet_t applets[] = {
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
+    {"ipcs",          applet_ipcs,          "ipcs",                      "Show IPC facilities status", "Security"},
 
     // Network
     {"ifconfig",      applet_ifconfig,      "ifconfig",                  "Display network interface",  "Network"},
     {"ping",          applet_ping,          "ping <ip> [count]",         "ICMP Echo ping utility",     "Network"},
     {"arp",           applet_arp,           "arp",                       "View ARP cache table",       "Network"},
+    {"dhclient",      applet_dhclient,      "dhclient",                  "Request DHCP lease",         "Network"},
+    {"nslookup",      applet_nslookup,      "nslookup <host>",           "Query DNS name servers",     "Network"},
 
     // Storage & Devices
     {"hdparm",        applet_hdparm,        "hdparm",                    "Inspect ATA hard disk",      "Storage"},
     {"lspci",         applet_lspci,         "lspci",                     "List PCI devices",           "Storage"},
     {"speaker",       applet_speaker,       "speaker <freq> <dur_ms>",   "Play PC speaker tone",       "Storage"},
+    {"mouse",         applet_mouse,         "mouse",                     "Query PS/2 mouse cursor",    "Storage"},
 
     // Virtualization & Async I/O
     {"virtinfo",      applet_virtinfo,      "virtinfo",                  "Hypervisor & VirtIO status", "Virtualization"},
@@ -778,7 +906,7 @@ static int applet_lazybox(int argc, char** argv) {
     printk("Usage: lazybox [function] [arguments]...\n\n");
     printk(ANSI_YELLOW "Defined Applet Categories:\n" ANSI_RESET);
 
-    const char* cats[] = {"Core", "Filesystem", "Crypto", "Security", "Network", "Storage", "Virtualization", "System", "Terminal", NULL};
+    const char* cats[] = {"Core", "Filesystem", "Sound", "Kernel", "Crypto", "Security", "Network", "Storage", "Virtualization", "System", "Terminal", NULL};
     for (int c = 0; cats[c] != NULL; c++) {
         printk(ANSI_BRIGHT_GREEN "  [%s]\n   " ANSI_RESET, cats[c]);
         for (int i = 0; applets[i].name != NULL; i++) {
