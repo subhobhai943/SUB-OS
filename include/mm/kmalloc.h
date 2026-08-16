@@ -15,4 +15,8 @@ size_t heap_get_used_bytes(void);
 size_t heap_get_free_bytes(void);
 size_t heap_get_total_bytes(void);
 
+static inline size_t kmalloc_get_used(void) { return heap_get_used_bytes(); }
+static inline size_t kmalloc_get_free(void) { return heap_get_free_bytes(); }
+static inline size_t kmalloc_get_total(void) { return heap_get_total_bytes(); }
+
 #endif // _MM_KMALLOC_H
