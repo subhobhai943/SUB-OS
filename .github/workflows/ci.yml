@@ -1,0 +1,33 @@
+name: CI Build & Kernel Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build & Verify SUB-OS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu make qemu-system-x86
+
+      - name: Compile SUB-OS Kernel & Bootloader
+        run: |
+          make clean
+          make CROSS_COMPILE=x86_64-linux-gnu-
+
+      - name: Verify Image Generation
+        run: |
+          test -f SUB-OS.img
+          test -f build/kernel.elf
+          test -f build/kernel.bin
+          ls -lh SUB-OS.img build/kernel.elf build/kernel.bin
