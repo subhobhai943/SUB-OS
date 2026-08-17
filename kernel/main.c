@@ -12,6 +12,11 @@
 #include <kernel/syslog.h>
 #include <kernel/cron.h>
 #include <kernel/metrics.h>
+#include <kernel/bpf.h>
+#include <kernel/kobject.h>
+#include <mm/vma.h>
+#include <drivers/canvas.h>
+#include <drivers/pty.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/isr.h>
@@ -51,6 +56,7 @@
 #include <net/dns.h>
 #include <net/filter.h>
 #include <net/http.h>
+#include <net/ssh.h>
 #include <crypto/crypto.h>
 #include <certs/certs.h>
 #include <security/security.h>
@@ -110,10 +116,10 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     pmm_init(memory_map, memory_map_count);
     heap_init();
     slab_init();
-    paging_init();
+    vma_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 6. Block Storage, Ramdisk & Hardware Busses
+    // 6. Storage & Block Layer
     printk(KERN_INFO "[7/18] Initializing Block Layer, Ramdisk & Storage Controllers... ");
     block_init();
     ramdisk_init();
@@ -123,10 +129,13 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
         printk(ANSI_YELLOW "No ATA Drive\n" ANSI_RESET);
     }
 
-    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, Framebuffer & USB... ");
+    // 7. Bus & Devices
+    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, Canvas & PTY... ");
     pci_init();
     virt_init();
     fb_init();
+    canvas_init();
+    pty_init();
     usb_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
@@ -176,18 +185,20 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     printk(KERN_INFO "[14/18] Mounting Virtual File System (VFS, devfs, procfs, sysfs)... ");
     vfs_init();
     sysfs_init();
+    kobject_subsystem_init();
     fat32_init();
     ext2_init();
     initramfs_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 13. Kernel Core: Signals, Modules, Syscalls, Tracing, Syslog, Metrics, Crond & Systemd
-    printk(KERN_INFO "[15/18] Initializing Syslog, Metrics, Cron, Tracing & Services... ");
+    printk(KERN_INFO "[15/18] Initializing Syslog, Metrics, Cron, Tracing, BPF & Services... ");
     signal_init();
     workqueue_init();
     syscall_init();
     module_init_subsystem();
     trace_init();
+    bpf_init();
     syslog_init();
     metrics_init();
     cron_init();

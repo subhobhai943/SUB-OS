@@ -42,7 +42,11 @@
 #include <kernel/metrics.h>
 #include <kernel/trace.h>
 #include <kernel/namespace.h>
-#include <mm/slab.h>
+#include <kernel/bpf.h>
+#include <kernel/kobject.h>
+#include <mm/vma.h>
+#include <drivers/canvas.h>
+#include <drivers/pty.h>
 #include <sound/melody.h>
 #include <userland/sh.h>
 
@@ -1301,8 +1305,62 @@ static int applet_htop(int argc, char** argv) {
     return 0;
 }
 
+static int applet_bpftool(int argc, char** argv) {
+    (void)argc; (void)argv;
+    size_t count = bpf_get_prog_count();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS In-Kernel eBPF Programs (%llu loaded) ===\n" ANSI_RESET, (uint64_t)count);
+    printk(ANSI_YELLOW "ID   TYPE             INSNS  RUNS   TIME_NS  NAME\n" ANSI_RESET);
+    for (size_t i = 0; i < count; i++) {
+        const bpf_prog_t* p = bpf_get_prog(i);
+        if (p && p->in_use) {
+            const char* tstr = "SOCKET_FILTER";
+            if (p->type == BPF_PROG_TYPE_KPROBE) tstr = "KPROBE       ";
+            else if (p->type == BPF_PROG_TYPE_XDP) tstr = "XDP          ";
+            printk("%-4u %s  %-6u %-6llu %-8llu %s\n",
+                   p->id, tstr, p->insn_count, p->run_count, p->total_runtime_ns, p->name);
+        }
+    }
+    return 0;
+}
+
+static int applet_pmap(int argc, char** argv) {
+    uint32_t pid = (argc >= 2) ? (uint32_t)atoi(argv[1]) : 1;
+    vma_dump_maps(pid);
+    return 0;
+}
+
+static int applet_lssys(int argc, char** argv) {
+    (void)argc; (void)argv;
+    kobject_dump_tree();
+    return 0;
+}
+
+static int applet_ptyinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    size_t active = pty_get_active_count();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Unix98 Pseudo-Terminal Subsystem (PTY) ===\n" ANSI_RESET);
+    printk("Active Pairs: %llu / %u\n", (uint64_t)active, PTY_MAX_PAIRS);
+    for (size_t i = 0; i < PTY_MAX_PAIRS; i++) {
+        const pty_pair_t* p = pty_get_pair(i);
+        if (p) {
+            printk("  [%u] Master: %-12s Slave: %-12s Status: %s\n",
+                   p->pty_num, p->master_name, p->slave_name,
+                   p->in_use ? ANSI_BRIGHT_GREEN "ACTIVE" ANSI_RESET : ANSI_YELLOW "IDLE" ANSI_RESET);
+        }
+    }
+    return 0;
+}
+
+static int applet_desktop(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(KERN_INFO "Rendering 2D Graphical Desktop Canvas on Linear Framebuffer...\n");
+    canvas_render_desktop_mockup();
+    printk(ANSI_BRIGHT_GREEN "Desktop UI Frame Rendered (320x200 32bpp TrueColor)\n" ANSI_RESET);
+    return 0;
+}
+
 // -------------------------------------------------------------
-// Applet Dispatch Table (Over 65 Linux Tools)
+// Applet Dispatch Table (Over 70 Linux Tools)
 // -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
     // Core & Scripting
@@ -1363,6 +1421,13 @@ static const lazybox_applet_t applets[] = {
     {"slabinfo",      applet_slabinfo,      "slabinfo",                  "Kernel SLAB cache statistics","Kernel"},
     {"trace",         applet_trace,         "trace [on|off|dump|clear]", "Kernel execution event tracer","Kernel"},
     {"unshare",       applet_unshare,       "unshare [name]",            "Create isolated namespace",  "Kernel"},
+    {"bpftool",       applet_bpftool,       "bpftool",                   "Inspect in-kernel BPF bytecode","Kernel"},
+    {"bpf",           applet_bpftool,       "bpf",                       "eBPF utility alias",         "Kernel"},
+    {"pmap",          applet_pmap,          "pmap [pid]",                "Process memory map viewer",  "Kernel"},
+    {"lssys",         applet_lssys,         "lssys",                     "Sysfs kobject hierarchy tree","Kernel"},
+    {"ptyinfo",       applet_ptyinfo,       "ptyinfo",                   "Pseudo-terminal subsystem info","Kernel"},
+    {"desktop",       applet_desktop,       "desktop",                   "Render 2D GUI Canvas desktop","Kernel"},
+    {"draw",          applet_desktop,       "draw",                      "Canvas graphics demo",       "Kernel"},
 
     // Cryptography & Security
     {"md5sum",        applet_md5sum,        "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
