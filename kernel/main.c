@@ -7,6 +7,8 @@
 #include <kernel/timer.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <kernel/trace.h>
+#include <kernel/namespace.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/isr.h>
@@ -16,6 +18,7 @@
 #include <arch/x86_64/paging.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
+#include <mm/slab.h>
 #include <drivers/tty.h>
 #include <drivers/serial.h>
 #include <drivers/keyboard.h>
@@ -28,9 +31,11 @@
 #include <drivers/rtc.h>
 #include <drivers/acpi.h>
 #include <drivers/usb.h>
+#include <drivers/ramdisk.h>
 #include <block/block.h>
 #include <ipc/ipc.h>
 #include <sound/sound.h>
+#include <sound/melody.h>
 #include <fs/vfs.h>
 #include <fs/fat32.h>
 #include <fs/ext2.h>
@@ -41,6 +46,7 @@
 #include <net/tcp.h>
 #include <net/dhcp.h>
 #include <net/dns.h>
+#include <net/filter.h>
 #include <crypto/crypto.h>
 #include <certs/certs.h>
 #include <security/security.h>
@@ -50,6 +56,7 @@
 #include <init/init.h>
 #include <init/version.h>
 #include <userland/lazybox.h>
+#include <userland/sh.h>
 #include <userland/shell.h>
 
 void kernel_main(void* memory_map, uint64_t memory_map_count) {
@@ -92,16 +99,18 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     acpi_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 5. Memory Management
-    printk(KERN_INFO "[6/18] Initializing Physical & Dynamic Heap Memory (PMM + Heap)... ");
+    // 5. Memory Management: PMM + Dynamic Heap + SLAB Cache
+    printk(KERN_INFO "[6/18] Initializing Physical PMM, Dynamic Heap & SLAB Cache... ");
     pmm_init(memory_map, memory_map_count);
     heap_init();
+    slab_init();
     paging_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 6. Block Storage & Hardware Busses
-    printk(KERN_INFO "[7/18] Initializing Block Layer & Storage Controllers... ");
+    // 6. Block Storage, Ramdisk & Hardware Busses
+    printk(KERN_INFO "[7/18] Initializing Block Layer, Ramdisk & Storage Controllers... ");
     block_init();
+    ramdisk_init();
     if (ata_init()) {
         printk(ANSI_BRIGHT_GREEN "ATA Primary Master Active\n" ANSI_RESET);
     } else {
@@ -115,8 +124,9 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     usb_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 7. Network Subsystem
-    printk(KERN_INFO "[9/18] Initializing Network Protocol Stack (L2-L4)... ");
+    // 7. Network Subsystem & Firewall
+    printk(KERN_INFO "[9/18] Initializing Network Protocol Stack & NetFilter Firewall... ");
+    filter_init();
     if (e1000_init()) {
         net_init();
         socket_subsystem_init();
@@ -130,15 +140,17 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     }
 
     // 8. Sound & Voice Synthesizer
-    printk(KERN_INFO "[10/18] Initializing Sound Architecture & Formant TTS Synthesizer... ");
+    printk(KERN_INFO "[10/18] Initializing Sound Architecture, Melody Player & Formant TTS... ");
     sound_init();
+    melody_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 9. Crypto, Certificates & LSM Security
-    printk(KERN_INFO "[11/18] Initializing X.509 Keyring & Linux Security Module... ");
+    // 9. Crypto, Certificates, LSM Security & Container Namespaces
+    printk(KERN_INFO "[11/18] Initializing X.509 Keyring, LSM Security & Namespaces... ");
     prng_seed(0, 0);
     certs_init();
     security_init();
+    namespace_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 10. Inter-Process Communication
@@ -160,12 +172,13 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     initramfs_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 13. Kernel Core: Signals, Workqueues, Modules, Syscalls
-    printk(KERN_INFO "[15/18] Initializing Signals, Workqueues, Syscalls & Module Loader... ");
+    // 13. Kernel Core: Signals, Workqueues, Modules, Syscalls & Tracing
+    printk(KERN_INFO "[15/18] Initializing Signals, Workqueues, Syscalls, Modules & Tracing... ");
     signal_init();
     workqueue_init();
     syscall_init();
     module_init_subsystem();
+    trace_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 14. Preemptive Multi-Tasking & Userland

@@ -822,12 +822,178 @@ static int applet_poweroff(int argc, char** argv) {
 static int applet_lazybox(int argc, char** argv);
 
 // -------------------------------------------------------------
-// Applet Dispatch Table (Over 50 Linux Tools)
+// Advanced Linux Subsystem Applets
+// -------------------------------------------------------------
+#include <mm/slab.h>
+#include <kernel/trace.h>
+#include <kernel/namespace.h>
+#include <net/filter.h>
+#include <sound/melody.h>
+#include <userland/sh.h>
+
+static int applet_sh(int argc, char** argv) {
+    return sh_main(argc, argv);
+}
+
+static int applet_slabinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "slabinfo - version: 2.1\n" ANSI_RESET);
+    printk(ANSI_YELLOW "# name            <active_objs> <num_objs> <objsize> <objperslab> <pagesperslab>\n" ANSI_RESET);
+    size_t count = slab_get_cache_count();
+    for (size_t i = 0; i < count; i++) {
+        const kmem_cache_t* c = slab_get_cache(i);
+        if (c && c->in_use) {
+            printk("%-18s %11u %10u %9llu %12llu %14d\n",
+                   c->name, c->active_objects, c->active_objects + 16,
+                   (uint64_t)c->object_size, (uint64_t)c->objects_per_slab, 1);
+        }
+    }
+    return 0;
+}
+
+static int applet_trace(int argc, char** argv) {
+    if (argc >= 2) {
+        if (strcmp(argv[1], "on") == 0) {
+            trace_enable(true);
+            printk(KERN_INFO "Tracing enabled\n");
+            return 0;
+        } else if (strcmp(argv[1], "off") == 0) {
+            trace_enable(false);
+            printk(KERN_INFO "Tracing disabled\n");
+            return 0;
+        } else if (strcmp(argv[1], "clear") == 0) {
+            trace_clear();
+            printk(KERN_INFO "Trace buffer cleared\n");
+            return 0;
+        }
+    }
+
+    size_t total = trace_get_count();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Kernel Event Trace Ringbuffer (%llu events) ===\n" ANSI_RESET, (uint64_t)total);
+    printk(ANSI_YELLOW "# CPU  PID   TIMESTAMP   CATEGORY  EVENT\n" ANSI_RESET);
+    const char* cat_names[] = {"SYS  ", "IRQ  ", "SCHED", "MM   ", "NET  ", "FS   "};
+
+    for (size_t i = 0; i < total; i++) {
+        const trace_entry_t* e = trace_get_entry(i);
+        if (e) {
+            const char* cat_str = (e->category < TRACE_CAT_MAX) ? cat_names[e->category] : "MISC ";
+            printk("[%3u] %4u %10llu ms  [%s]  %s\n",
+                   e->cpu_id, e->pid, e->timestamp * 10, cat_str, e->message);
+        }
+    }
+    return 0;
+}
+
+static int applet_unshare(int argc, char** argv) {
+    const char* name = (argc >= 2) ? argv[1] : "isolated_container";
+    nsproxy_t* ns = namespace_create(name, CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS);
+    if (ns) {
+        printk(KERN_INFO "Created and entered isolated namespace ID %u ('%s')\n", ns->id, ns->name);
+        printk("  Hostname:   %s\n", ns->uts.hostname);
+        printk("  PID Offset: %u\n", ns->pid_offset);
+        namespace_switch(ns->id);
+    } else {
+        printk(KERN_ERR "unshare: failed to create namespace\n");
+    }
+    return 0;
+}
+
+static int applet_iptables(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "Chain INPUT (policy ACCEPT)\n" ANSI_RESET);
+    printk(ANSI_YELLOW "target     prot opt source               destination\n" ANSI_RESET);
+    size_t count = filter_get_rule_count();
+    for (size_t i = 0; i < count; i++) {
+        const filter_rule_t* r = filter_get_rule(i);
+        if (r && r->in_use) {
+            const char* act = (r->action == FILTER_ACTION_ACCEPT) ? "ACCEPT " : "DROP   ";
+            const char* proto = (r->protocol == 1) ? "icmp" : (r->protocol == 6) ? "tcp " : (r->protocol == 17) ? "udp " : "all ";
+            printk("%s    %-4s --  0.0.0.0/0            0.0.0.0/0            dport:%-5u /* %s */ (pkts: %llu, bytes: %llu)\n",
+                   act, proto, r->dst_port, r->comment, r->packet_count, r->byte_count);
+        }
+    }
+    return 0;
+}
+
+static int applet_tune(int argc, char** argv) {
+    const char* which = (argc >= 2) ? argv[1] : "startup";
+    if (strcmp(which, "tetris") == 0) {
+        melody_play_tetris();
+    } else if (strcmp(which, "mario") == 0) {
+        melody_play_mario();
+    } else {
+        melody_play_startup();
+    }
+    return 0;
+}
+
+static int applet_env(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const char* keys[] = {"PATH", "USER", "HOME", "SHELL", "TERM", "OS", NULL};
+    for (int i = 0; keys[i] != NULL; i++) {
+        const char* val = sh_get_env(keys[i]);
+        if (val) {
+            printk("%s=%s\n", keys[i], val);
+        }
+    }
+    return 0;
+}
+
+static int applet_export(int argc, char** argv) {
+    if (argc < 2) {
+        return applet_env(argc, argv);
+    }
+    for (int i = 1; i < argc; i++) {
+        char* eq = strchr(argv[i], '=');
+        if (eq) {
+            *eq = '\0';
+            sh_set_env(argv[i], eq + 1);
+        }
+    }
+    return 0;
+}
+
+static int applet_basename(int argc, char** argv) {
+    if (argc < 2) {
+        printk("\n");
+        return 0;
+    }
+    const char* p = argv[1];
+    const char* last = strrchr(p, '/');
+    printk("%s\n", last ? last + 1 : p);
+    return 0;
+}
+
+static int applet_dirname(int argc, char** argv) {
+    if (argc < 2) {
+        printk(".\n");
+        return 0;
+    }
+    char buf[256];
+    strncpy(buf, argv[1], sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char* last = strrchr(buf, '/');
+    if (!last) {
+        printk(".\n");
+    } else if (last == buf) {
+        printk("/\n");
+    } else {
+        *last = '\0';
+        printk("%s\n", buf);
+    }
+    return 0;
+}
+
+// -------------------------------------------------------------
+// Applet Dispatch Table (Over 55 Linux Tools)
 // -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
-    // Core
+    // Core & Scripting
     {"lazybox",       applet_lazybox,       "lazybox [applet]",          "Multi-call utility manager", "Core"},
+    {"sh",            applet_sh,            "sh <script> | -c <cmd>",    "Shell script interpreter",   "Core"},
     {"echo",          applet_echo,          "echo [text...]",            "Display text to stdout",     "Core"},
+    {"env",           applet_env,           "env",                       "Print environment variables","Core"},
+    {"export",        applet_export,        "export VAR=VAL",            "Set environment variable",   "Core"},
     {"whoami",        applet_whoami,        "whoami",                    "Print current user",         "Core"},
     {"id",            applet_id,            "id",                        "Print user and group IDs",   "Core"},
     {"date",          applet_date,          "date",                      "Display CMOS RTC date",      "Core"},
@@ -847,16 +1013,22 @@ static const lazybox_applet_t applets[] = {
     {"cp",            applet_cp,            "cp <src> <dst>",            "Copy files",                 "Filesystem"},
     {"grep",          applet_grep,          "grep <pattern> <file>",     "Search pattern in file",     "Filesystem"},
     {"hexdump",       applet_hexdump,       "hexdump <file>",            "Display hex dump of file",   "Filesystem"},
+    {"basename",      applet_basename,      "basename <path>",           "Strip directory path",       "Filesystem"},
+    {"dirname",       applet_dirname,       "dirname <path>",            "Strip non-directory suffix", "Filesystem"},
     {"nano",          applet_nano_wrapper,  "nano [file]",               "Visual full-screen editor",  "Filesystem"},
 
     // Sound & Voice Synthesis
     {"tts",           applet_tts,           "tts <text>",                "Phonetic formant voice synth","Sound"},
+    {"tune",          applet_tune,          "tune [tetris|mario|startup]","8-bit retro chip melody player","Sound"},
     {"alsamixer",     applet_alsamixer,     "alsamixer",                 "Audio control & mixer",      "Sound"},
 
-    // Kernel Modules & Dynamic Loading
+    // Kernel, Diagnostics & Namespaces
     {"lsmod",         applet_lsmod,         "lsmod",                     "Show kernel module status",  "Kernel"},
     {"insmod",        applet_insmod,        "insmod <mod>",              "Insert kernel module",       "Kernel"},
     {"rmmod",         applet_rmmod,         "rmmod <mod>",               "Remove kernel module",       "Kernel"},
+    {"slabinfo",      applet_slabinfo,      "slabinfo",                  "Kernel SLAB cache statistics","Kernel"},
+    {"trace",         applet_trace,         "trace [on|off|dump|clear]", "Kernel execution event tracer","Kernel"},
+    {"unshare",       applet_unshare,       "unshare [name]",            "Create isolated namespace",  "Kernel"},
 
     // Cryptography & Security
     {"md5sum",        applet_md5sum,        "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
@@ -867,12 +1039,13 @@ static const lazybox_applet_t applets[] = {
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
     {"ipcs",          applet_ipcs,          "ipcs",                      "Show IPC facilities status", "Security"},
 
-    // Network
+    // Network & Firewall
     {"ifconfig",      applet_ifconfig,      "ifconfig",                  "Display network interface",  "Network"},
     {"ping",          applet_ping,          "ping <ip> [count]",         "ICMP Echo ping utility",     "Network"},
     {"arp",           applet_arp,           "arp",                       "View ARP cache table",       "Network"},
     {"dhclient",      applet_dhclient,      "dhclient",                  "Request DHCP lease",         "Network"},
     {"nslookup",      applet_nslookup,      "nslookup <host>",           "Query DNS name servers",     "Network"},
+    {"iptables",      applet_iptables,      "iptables",                  "Firewall packet filter rules","Network"},
 
     // Storage & Devices
     {"hdparm",        applet_hdparm,        "hdparm",                    "Inspect ATA hard disk",      "Storage"},
