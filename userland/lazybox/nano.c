@@ -16,39 +16,46 @@ static int nano_cursor_row = 0;
 static int nano_cursor_col = 0;
 static int nano_top_row = 0;
 static bool nano_modified = false;
-static char nano_filename[128];
-static char nano_status[80];
+static char nano_filename[256];
+static char nano_status[128];
 static char nano_cut_buffer[NANO_LINE_LEN];
 static bool nano_has_cut = false;
 
 static void nano_render(void) {
-    tty_clear();
-
-    // 1. Title bar (Inverted Color)
-    printk(ANSI_INVERT "  GNU nano 2.0.0             File: %-32s %s" ANSI_RESET "\n",
-           nano_filename[0] ? nano_filename : "New Buffer",
-           nano_modified ? "[Modified]" : "          ");
+    // 1. Title bar (Row 0)
+    tty_set_cursor(0, 0);
+    char title[128];
+    snprintf(title, sizeof(title), "  GNU nano 2.0.0             File: %-32s %s",
+             nano_filename[0] ? nano_filename : "New Buffer",
+             nano_modified ? "[Modified]" : "          ");
+    printk(ANSI_INVERT "%-80s" ANSI_RESET, title);
 
     // 2. Viewport Lines (Rows 1 to 21)
     for (int r = 0; r < NANO_SCREEN_ROWS; r++) {
+        tty_set_cursor(r + 1, 0);
         int line_idx = nano_top_row + r;
         if (line_idx < (int)nano_line_count) {
-            printk("%s\n", nano_lines[line_idx]);
+            printk("\033[K%s", nano_lines[line_idx]);
         } else {
-            printk("~\n");
+            printk("\033[K" ANSI_BRIGHT_BLACK "~" ANSI_RESET);
         }
     }
 
-    // 3. Status Message Bar
-    printk(ANSI_BRIGHT_CYAN "%-78s" ANSI_RESET "\n", nano_status);
+    // 3. Status Message Bar (Row 22)
+    tty_set_cursor(22, 0);
+    printk(ANSI_BRIGHT_CYAN "\033[K%-78s" ANSI_RESET, nano_status);
 
-    // 4. Shortcut Cheatsheet Footer
-    printk(ANSI_INVERT "^G Get Help  ^O WriteOut  ^W Where Is  ^K Cut Line  ^U Paste  ^X Exit" ANSI_RESET "\n");
+    // 4. Shortcut Cheatsheet Footer (Row 23)
+    tty_set_cursor(23, 0);
+    printk(ANSI_INVERT "%-80s" ANSI_RESET,
+           "^G Help   ^O WriteOut   ^W Where Is   ^K Cut Line   ^U Paste   ^X Exit");
 
     // 5. Position Hardware Cursor
-    int scr_row = (nano_cursor_row - nano_top_row) + 2;
-    int scr_col = nano_cursor_col + 1;
-    tty_set_cursor(scr_row - 1, scr_col - 1);
+    int scr_row = (nano_cursor_row - nano_top_row) + 1;
+    int scr_col = nano_cursor_col;
+    if (scr_row >= 1 && scr_row <= NANO_SCREEN_ROWS) {
+        tty_set_cursor(scr_row, scr_col);
+    }
 }
 
 static void nano_save(void) {
@@ -59,7 +66,7 @@ static void nano_save(void) {
 
     int fd = vfs_open(nano_filename, O_CREAT | O_WRONLY | O_TRUNC);
     if (fd < 0) {
-        strcpy(nano_status, "[ Error opening file for writing ]");
+        strcpy(nano_status, "[ Error: Cannot open file for writing ]");
         return;
     }
 
@@ -78,7 +85,7 @@ static void nano_save(void) {
     vfs_close(fd);
 
     nano_modified = false;
-    sprintf(nano_status, "[ Wrote %llu bytes to %s ]", (uint64_t)total_bytes, nano_filename);
+    snprintf(nano_status, sizeof(nano_status), "[ Wrote %llu bytes to %s ]", (uint64_t)total_bytes, nano_filename);
 }
 
 static void nano_load(const char* path) {
@@ -90,13 +97,21 @@ static void nano_load(const char* path) {
     nano_modified = false;
     nano_status[0] = '\0';
 
-    strncpy(nano_filename, path, sizeof(nano_filename) - 1);
+    if (!path || path[0] == '\0') {
+        nano_filename[0] = '\0';
+        nano_line_count = 1;
+        nano_lines[0][0] = '\0';
+        strcpy(nano_status, "[ New Buffer - Use ^O to save ]");
+        return;
+    }
 
-    int fd = vfs_open(path, O_RDONLY);
+    vfs_resolve_path(path, nano_filename, sizeof(nano_filename));
+
+    int fd = vfs_open(nano_filename, O_RDONLY);
     if (fd < 0) {
         nano_line_count = 1;
         nano_lines[0][0] = '\0';
-        sprintf(nano_status, "[ New File: %s ]", path);
+        snprintf(nano_status, sizeof(nano_status), "[ New File: %s ]", nano_filename);
         return;
     }
 
@@ -129,13 +144,14 @@ static void nano_load(const char* path) {
         cur_line++;
     }
     nano_line_count = cur_line > 0 ? cur_line : 1;
-    sprintf(nano_status, "[ Read %llu line(s) from %s ]", (uint64_t)nano_line_count, path);
+    snprintf(nano_status, sizeof(nano_status), "[ Read %llu line(s) from %s ]", (uint64_t)nano_line_count, nano_filename);
 }
 
 int nano_main(int argc, char** argv) {
+    tty_clear();
+
     if (argc < 2) {
         nano_load("");
-        strcpy(nano_status, "[ New Buffer - Use ^O to save ]");
     } else {
         nano_load(argv[1]);
     }
@@ -162,11 +178,16 @@ int nano_main(int argc, char** argv) {
         uint16_t key = keyboard_get_key();
 
         switch (key) {
-            case 0x18: // Ctrl+X -> Exit
+            case 0x18: // Ctrl+X
+            case 0x11: // Ctrl+Q
+            case 27:   // ESC
+            case KEY_F10:
                 running = false;
                 break;
 
-            case 0x0F: // Ctrl+O -> Write Out / Save
+            case 0x0F: // Ctrl+O
+            case 0x13: // Ctrl+S
+            case KEY_F2:
                 nano_save();
                 break;
 
@@ -200,6 +221,7 @@ int nano_main(int argc, char** argv) {
                 break;
 
             case 0x07: // Ctrl+G -> Help
+            case KEY_F1:
                 strcpy(nano_status, "[ Help: ^O=Save, ^X=Exit, ^K=Cut, ^U=Paste, Arrows=Move ]");
                 break;
 
@@ -250,7 +272,8 @@ int nano_main(int argc, char** argv) {
                                   nano_cursor_row + NANO_SCREEN_ROWS : (int)nano_line_count - 1;
                 break;
 
-            case '\n': // Enter -> Split line
+            case '\n':
+            case '\r': // Enter -> Split line
                 if (nano_line_count < NANO_MAX_LINES) {
                     for (int i = (int)nano_line_count; i > nano_cursor_row + 1; i--) {
                         strcpy(nano_lines[i], nano_lines[i - 1]);
@@ -283,6 +306,15 @@ int nano_main(int argc, char** argv) {
                         nano_cursor_col = prev_len;
                         nano_modified = true;
                     }
+                }
+                break;
+
+            case KEY_DELETE:
+                if (nano_cursor_col < line_len) {
+                    memmove(&nano_lines[nano_cursor_row][nano_cursor_col],
+                            &nano_lines[nano_cursor_row][nano_cursor_col + 1],
+                            strlen(&nano_lines[nano_cursor_row][nano_cursor_col + 1]) + 1);
+                    nano_modified = true;
                 }
                 break;
 

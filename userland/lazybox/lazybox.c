@@ -40,7 +40,7 @@
 // -------------------------------------------------------------
 
 static int applet_ls(int argc, char** argv) {
-    const char* path = (argc >= 2) ? argv[1] : "/";
+    const char* path = (argc >= 2) ? argv[1] : vfs_getcwd();
     vfs_node_t* dir = vfs_namei(path);
 
     if (!dir) {
@@ -112,6 +112,8 @@ static int applet_touch(int argc, char** argv) {
         int fd = vfs_open(argv[i], O_CREAT | O_RDWR);
         if (fd >= 0) {
             vfs_close(fd);
+        } else {
+            printk(KERN_ERR "touch: cannot touch '%s': No such file or directory\n", argv[i]);
         }
     }
     return 0;
@@ -141,14 +143,14 @@ static int applet_echo(int argc, char** argv) {
 
 static int applet_pwd(int argc, char** argv) {
     (void)argc; (void)argv;
-    printk("/\n");
+    printk("%s\n", vfs_getcwd());
     return 0;
 }
 
 static int applet_cd(int argc, char** argv) {
     const char* target = (argc >= 2) ? argv[1] : "/";
-    vfs_node_t* node = vfs_namei(target);
-    if (!node || !(node->flags & FS_DIRECTORY)) {
+    int res = vfs_chdir(target);
+    if (res != 0) {
         printk(KERN_ERR "cd: %s: No such file or directory\n", target);
         return 1;
     }

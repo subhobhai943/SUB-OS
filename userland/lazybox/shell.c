@@ -1,5 +1,6 @@
 #include <userland/shell.h>
 #include <userland/lazybox.h>
+#include <fs/vfs.h>
 #include <drivers/tty.h>
 #include <drivers/keyboard.h>
 #include <drivers/speaker.h>
@@ -19,11 +20,14 @@ static int history_count = 0;
 static int history_head = 0;
 
 static const char* shell_builtins[] = {
-    "lazybox", "ls", "cat", "touch", "mkdir", "wc", "echo",
-    "md5sum", "sha256sum", "crc32", "ifconfig", "ping", "arp",
-    "hdparm", "uname", "free", "uptime", "dmesg", "sleep", "clear",
-    "help", "neofetch", "calc", "hexdump", "matrix", "history", "tty",
-    "beep", "reboot", "shutdown", NULL
+    "lazybox", "nano", "ls", "cat", "touch", "mkdir", "pwd", "cd", "wc", "echo",
+    "head", "tail", "stat", "cp", "grep", "hexdump", "tts", "alsamixer",
+    "lsmod", "insmod", "rmmod", "md5sum", "sha256sum", "crc32", "rand",
+    "certcheck", "capsh", "ipcs", "ifconfig", "ping", "arp", "dhclient",
+    "nslookup", "hdparm", "lspci", "speaker", "mouse", "virtinfo",
+    "io_uring_test", "uname", "free", "uptime", "dmesg", "ps", "top",
+    "sleep", "reboot", "poweroff", "clear", "help", "neofetch", "calc",
+    "matrix", "history", "tty", "beep", "shutdown", NULL
 };
 
 static void history_add(const char* cmd) {
@@ -51,26 +55,34 @@ static void redraw_line(const char* prompt, const char* buffer, size_t len, size
 static void cmd_help(void) {
     printk(ANSI_BRIGHT_CYAN "================== SUB-OS Production Command Reference ==================\n" ANSI_RESET);
     printk(ANSI_YELLOW "  [File & Storage Tools]\n" ANSI_RESET);
+    printk("    " ANSI_GREEN "nano [file]" ANSI_RESET "        - Full-screen visual interactive text editor\n");
     printk("    " ANSI_GREEN "ls [path]" ANSI_RESET "          - Directory list with type & inode numbers\n");
     printk("    " ANSI_GREEN "cat <file>" ANSI_RESET "         - Display file contents (supports /proc & /dev)\n");
-    printk("    " ANSI_GREEN "touch / mkdir" ANSI_RESET "      - Create files and directories in VFS\n");
+    printk("    " ANSI_GREEN "touch <file>" ANSI_RESET "       - Create empty files in VFS\n");
+    printk("    " ANSI_GREEN "mkdir <dir>" ANSI_RESET "        - Create directories in VFS\n");
+    printk("    " ANSI_GREEN "cd [dir] / pwd" ANSI_RESET "     - Change / Print current working directory\n");
     printk("    " ANSI_GREEN "hdparm" ANSI_RESET "             - Inspect ATA hard disk parameters & sectors\n\n");
+    printk(ANSI_YELLOW "  [Sound & Audio]\n" ANSI_RESET);
+    printk("    " ANSI_GREEN "tts <text>" ANSI_RESET "         - Phonetic formant voice synthesizer\n");
+    printk("    " ANSI_GREEN "alsamixer" ANSI_RESET "          - Sound architecture & audio card status\n\n");
+    printk(ANSI_YELLOW "  [Kernel & Modules]\n" ANSI_RESET);
+    printk("    " ANSI_GREEN "lsmod / insmod / rmmod" ANSI_RESET " - Manage dynamically loadable kernel modules\n\n");
     printk(ANSI_YELLOW "  [Cryptography & Security]\n" ANSI_RESET);
     printk("    " ANSI_GREEN "sha256sum <file>" ANSI_RESET "   - FIPS 180-4 SHA-256 secure hash\n");
     printk("    " ANSI_GREEN "md5sum <file>" ANSI_RESET "      - RFC 1321 MD5 message digest\n");
-    printk("    " ANSI_GREEN "crc32 <text>" ANSI_RESET "       - IEEE 802.3 32-bit CRC calculation\n\n");
+    printk("    " ANSI_GREEN "crc32 <text>" ANSI_RESET "       - IEEE 802.3 32-bit CRC calculation\n");
+    printk("    " ANSI_GREEN "certcheck / capsh" ANSI_RESET "  - X.509 keyring & POSIX capabilities\n\n");
     printk(ANSI_YELLOW "  [Networking Suite]\n" ANSI_RESET);
     printk("    " ANSI_GREEN "ifconfig" ANSI_RESET "           - Ethernet eth0 configuration & RX/TX metrics\n");
     printk("    " ANSI_GREEN "ping <ip>" ANSI_RESET "          - Send ICMP echo requests with latency ms\n");
-    printk("    " ANSI_GREEN "arp" ANSI_RESET "                - Display kernel ARP resolution cache table\n\n");
+    printk("    " ANSI_GREEN "dhclient" ANSI_RESET "           - Request IP lease from DHCP server\n");
+    printk("    " ANSI_GREEN "nslookup <host>" ANSI_RESET "    - Query DNS domain name server\n\n");
     printk(ANSI_YELLOW "  [System & Diagnostics]\n" ANSI_RESET);
     printk("    " ANSI_GREEN "neofetch" ANSI_RESET "           - System information & OS ASCII badge\n");
     printk("    " ANSI_GREEN "free / uptime" ANSI_RESET "      - Memory metrics and CPU uptime\n");
-    printk("    " ANSI_GREEN "dmesg" ANSI_RESET "              - Kernel boot ring buffer log\n");
-    printk("    " ANSI_GREEN "hexdump [addr] [n]" ANSI_RESET " - Memory hex inspector\n");
+    printk("    " ANSI_GREEN "dmesg / ps / top" ANSI_RESET "   - Kernel boot log & process manager\n");
     printk("    " ANSI_GREEN "calc [A] [op] [B]" ANSI_RESET " - Arithmetic calculator (+, -, *, /, %%)\n");
     printk("    " ANSI_GREEN "matrix" ANSI_RESET "             - Digital rain screen animation\n");
-    printk("    " ANSI_GREEN "tty [1-4]" ANSI_RESET "           - Switch virtual console (or Alt+F1-F4)\n");
     printk("    " ANSI_GREEN "reboot / shutdown" ANSI_RESET "   - Power management\n");
     printk(ANSI_BRIGHT_BLACK "Tip: Use TAB for autocomplete, Up/Down for command history.\n" ANSI_RESET);
 }
@@ -240,7 +252,7 @@ static void shell_process(const char* cmd) {
     }
     if (argc == 0) return;
 
-    // 1. LazyBox Applets
+    // 1. LazyBox Applets (ls, cat, touch, mkdir, cd, pwd, nano, etc.)
     if (lazybox_has_applet(argv[0])) {
         lazybox_run_applet(argv[0], argc, argv);
         return;
@@ -274,8 +286,10 @@ static void shell_process(const char* cmd) {
         printk(ANSI_YELLOW "Rebooting...\n" ANSI_RESET);
         pit_sleep(200);
         outb(0x64, 0xFE);
-    } else if (strcmp(argv[0], "shutdown") == 0) {
+    } else if (strcmp(argv[0], "shutdown") == 0 || strcmp(argv[0], "poweroff") == 0) {
         printk(ANSI_YELLOW "System halted.\n" ANSI_RESET);
+        outw(0x604, 0x2000);
+        outw(0xB004, 0x2000);
         while (1) hlt();
     } else {
         printk(ANSI_RED "Unknown command: %s. Type 'help' or 'lazybox'.\n" ANSI_RESET, argv[0]);
@@ -287,14 +301,16 @@ void shell_run(void) {
     size_t cmd_len = 0;
     size_t cursor_pos = 0;
     int history_idx = -1;
-
-    const char* prompt = ANSI_BRIGHT_GREEN "sub-os> " ANSI_RESET;
+    char prompt[128];
 
     printk(ANSI_BRIGHT_CYAN "\nWelcome to SUB-OS Modular Monolithic Linux Core!\n" ANSI_RESET);
     printk("Type '" ANSI_YELLOW "help" ANSI_RESET "', '" ANSI_YELLOW "lazybox" ANSI_RESET "', or '" ANSI_YELLOW "neofetch" ANSI_RESET "' to begin.\n\n");
 
     while (true) {
+        const char* cwd = vfs_getcwd();
+        snprintf(prompt, sizeof(prompt), ANSI_BRIGHT_GREEN "sub-os:" ANSI_BRIGHT_CYAN "%s" ANSI_BRIGHT_GREEN "> " ANSI_RESET, cwd);
         printk("%s", prompt);
+
         cmd_len = 0;
         cursor_pos = 0;
         cmd_buffer[0] = '\0';
@@ -361,12 +377,12 @@ void shell_run(void) {
 
             char c = (char)(key & 0xFF);
 
-            if (c == 0x03) {
+            if (c == 0x03) { // Ctrl+C
                 printk("^C\n%s", prompt);
                 cmd_len = 0; cursor_pos = 0; cmd_buffer[0] = '\0';
                 continue;
             }
-            if (c == 0x0C) {
+            if (c == 0x0C) { // Ctrl+L
                 tty_clear();
                 printk("%s%s", prompt, cmd_buffer);
                 continue;

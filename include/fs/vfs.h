@@ -82,5 +82,9 @@ int vfs_create(const char* path, mode_t mode);
 
 vfs_node_t* vfs_get_root(void);
 int vfs_mount(const char* path, vfs_node_t* fs_root);
+const char* vfs_getcwd(void);
+int vfs_chdir(const char* path);
+void vfs_resolve_path(const char* path, char* resolved_out, size_t max_len);
+int vfs_unlink(const char* path);
 
 #endif // _FS_VFS_H

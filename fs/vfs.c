@@ -10,9 +10,11 @@
 
 static vfs_node_t* vfs_root = NULL;
 static file_descriptor_t file_descriptors[MAX_OPEN_FILES];
+static char vfs_cwd[256] = "/";
 
 void vfs_init(void) {
     memset(file_descriptors, 0, sizeof(file_descriptors));
+    strcpy(vfs_cwd, "/");
 
     // 1. Create root RAM filesystem
     vfs_root = ramfs_create_root();
@@ -32,14 +34,104 @@ vfs_node_t* vfs_get_root(void) {
     return vfs_root;
 }
 
+const char* vfs_getcwd(void) {
+    return vfs_cwd;
+}
+
+void vfs_resolve_path(const char* path, char* resolved_out, size_t max_len) {
+    if (!resolved_out || max_len == 0) return;
+
+    char temp[512];
+    if (!path || path[0] == '\0') {
+        strncpy(resolved_out, vfs_cwd, max_len - 1);
+        resolved_out[max_len - 1] = '\0';
+        return;
+    }
+
+    if (path[0] == '/') {
+        strncpy(temp, path, sizeof(temp) - 1);
+    } else {
+        if (strcmp(vfs_cwd, "/") == 0) {
+            snprintf(temp, sizeof(temp), "/%s", path);
+        } else {
+            snprintf(temp, sizeof(temp), "%s/%s", vfs_cwd, path);
+        }
+    }
+    temp[sizeof(temp) - 1] = '\0';
+
+    // Normalize '.' and '..' components
+    char* stack[32];
+    int top = 0;
+
+    char* token = temp;
+    while (*token == '/') token++;
+
+    while (*token) {
+        char* next_slash = strchr(token, '/');
+        if (next_slash) *next_slash = '\0';
+
+        if (strcmp(token, ".") == 0 || token[0] == '\0') {
+            // Do nothing
+        } else if (strcmp(token, "..") == 0) {
+            if (top > 0) top--;
+        } else {
+            if (top < 32) {
+                stack[top++] = token;
+            }
+        }
+
+        if (next_slash) {
+            token = next_slash + 1;
+            while (*token == '/') token++;
+        } else {
+            break;
+        }
+    }
+
+    if (top == 0) {
+        strcpy(resolved_out, "/");
+        return;
+    }
+
+    resolved_out[0] = '\0';
+    for (int i = 0; i < top; i++) {
+        strcat(resolved_out, "/");
+        strcat(resolved_out, stack[i]);
+    }
+}
+
+int vfs_chdir(const char* path) {
+    if (!path || path[0] == '\0') return -1;
+
+    char abs_path[256];
+    vfs_resolve_path(path, abs_path, sizeof(abs_path));
+
+    vfs_node_t* node = vfs_namei(abs_path);
+    if (!node) {
+        return -1; // Directory does not exist
+    }
+
+    if (!(node->flags & FS_DIRECTORY)) {
+        return -2; // Not a directory
+    }
+
+    strncpy(vfs_cwd, abs_path, sizeof(vfs_cwd) - 1);
+    vfs_cwd[sizeof(vfs_cwd) - 1] = '\0';
+    return 0;
+}
+
 vfs_node_t* vfs_namei(const char* path) {
     if (!path || !vfs_root) return NULL;
-    if (strcmp(path, "/") == 0) return vfs_root;
 
-    if (*path == '/') path++; // Skip leading slash
+    char abs_path[256];
+    vfs_resolve_path(path, abs_path, sizeof(abs_path));
+
+    if (strcmp(abs_path, "/") == 0) return vfs_root;
 
     char buffer[256];
-    strncpy(buffer, path, sizeof(buffer) - 1);
+    const char* p = abs_path;
+    if (*p == '/') p++;
+    strncpy(buffer, p, sizeof(buffer) - 1);
     buffer[sizeof(buffer) - 1] = '\0';
 
     vfs_node_t* current = vfs_root;
@@ -65,6 +157,7 @@ vfs_node_t* vfs_namei(const char* path) {
 
         if (next_slash) {
             token = next_slash + 1;
+            while (*token == '/') token++;
         } else {
             break;
         }
@@ -74,24 +167,43 @@ vfs_node_t* vfs_namei(const char* path) {
 }
 
 int vfs_open(const char* path, uint32_t flags) {
-    vfs_node_t* node = vfs_namei(path);
+    if (!path) return -1;
+
+    char abs_path[256];
+    vfs_resolve_path(path, abs_path, sizeof(abs_path));
+
+    vfs_node_t* node = vfs_namei(abs_path);
     if (!node) {
         if (flags & O_CREAT) {
             // Find parent and create
             char parent_path[256];
-            strncpy(parent_path, path, sizeof(parent_path) - 1);
+            strncpy(parent_path, abs_path, sizeof(parent_path) - 1);
+            parent_path[sizeof(parent_path) - 1] = '\0';
+
             char* last_slash = strrchr(parent_path, '/');
             if (last_slash) {
-                *last_slash = '\0';
-                const char* filename = last_slash + 1;
-                vfs_node_t* parent = vfs_namei(parent_path[0] ? parent_path : "/");
+                char filename[128];
+                strncpy(filename, last_slash + 1, sizeof(filename) - 1);
+                filename[sizeof(filename) - 1] = '\0';
+
+                if (last_slash == parent_path) {
+                    parent_path[1] = '\0'; // Root "/"
+                } else {
+                    *last_slash = '\0';
+                }
+
+                vfs_node_t* parent = vfs_namei(parent_path);
                 if (parent && parent->create) {
                     parent->create(parent, filename, 0644);
-                    node = vfs_namei(path);
+                    node = vfs_namei(abs_path);
                 }
             }
         }
         if (!node) return -1;
+    }
+
+    if (flags & O_TRUNC) {
+        node->length = 0;
     }
 
     if (node->open) {
@@ -102,7 +214,7 @@ int vfs_open(const char* path, uint32_t flags) {
     for (int fd = 3; fd < MAX_OPEN_FILES; fd++) {
         if (!file_descriptors[fd].node) {
             file_descriptors[fd].node = node;
-            file_descriptors[fd].offset = 0;
+            file_descriptors[fd].offset = (flags & O_APPEND) ? (off_t)node->length : 0;
             file_descriptors[fd].flags = flags;
             return fd;
         }
@@ -160,100 +272,93 @@ off_t vfs_lseek(int fd, off_t offset, int whence) {
     if (fd < 0 || fd >= MAX_OPEN_FILES || !file_descriptors[fd].node) return -1;
 
     file_descriptor_t* desc = &file_descriptors[fd];
-    if (whence == SEEK_SET) desc->offset = offset;
-    else if (whence == SEEK_CUR) desc->offset += offset;
-    else if (whence == SEEK_END) desc->offset = desc->node->length + offset;
+    switch (whence) {
+        case SEEK_SET:
+            desc->offset = offset;
+            break;
+        case SEEK_CUR:
+            desc->offset += offset;
+            break;
+        case SEEK_END:
+            desc->offset = (off_t)desc->node->length + offset;
+            break;
+        default:
+            return -1;
+    }
     return desc->offset;
 }
 
 int vfs_close(int fd) {
     if (fd < 0 || fd >= MAX_OPEN_FILES || !file_descriptors[fd].node) return -1;
 
-    if (file_descriptors[fd].node->close) {
-        file_descriptors[fd].node->close(file_descriptors[fd].node);
+    file_descriptor_t* desc = &file_descriptors[fd];
+    if (desc->node->close) {
+        desc->node->close(desc->node);
     }
-    file_descriptors[fd].node = NULL;
-    file_descriptors[fd].offset = 0;
+
+    desc->node = NULL;
+    desc->offset = 0;
+    desc->flags = 0;
     return 0;
 }
 
 int vfs_mkdir(const char* path, mode_t mode) {
-    if (!path || !*path) return -1;
+    if (!path) return -1;
+
+    char abs_path[256];
+    vfs_resolve_path(path, abs_path, sizeof(abs_path));
+
     char parent_path[256];
-    strncpy(parent_path, path, sizeof(parent_path) - 1);
+    strncpy(parent_path, abs_path, sizeof(parent_path) - 1);
     parent_path[sizeof(parent_path) - 1] = '\0';
 
     char* last_slash = strrchr(parent_path, '/');
-    const char* dirname = path;
-    vfs_node_t* parent = vfs_get_root();
+    if (!last_slash) return -1;
 
-    if (last_slash) {
-        if (last_slash == parent_path) {
-            parent = vfs_namei("/");
-            dirname = last_slash + 1;
-        } else {
-            *last_slash = '\0';
-            dirname = last_slash + 1;
-            parent = vfs_namei(parent_path);
-        }
+    char dirname[128];
+    strncpy(dirname, last_slash + 1, sizeof(dirname) - 1);
+    dirname[sizeof(dirname) - 1] = '\0';
+
+    if (last_slash == parent_path) {
+        parent_path[1] = '\0'; // Root "/"
+    } else {
+        *last_slash = '\0';
     }
 
-    if (parent && parent->mkdir) {
-        return parent->mkdir(parent, dirname, mode);
+    vfs_node_t* parent = vfs_namei(parent_path);
+    if (!parent || !parent->mkdir) return -1;
+
+    return parent->mkdir(parent, dirname, mode);
+}
+
+int vfs_create(const char* path, mode_t mode) {
+    int fd = vfs_open(path, O_CREAT | O_RDWR);
+    if (fd >= 0) {
+        vfs_close(fd);
+        return 0;
     }
     return -1;
 }
 
-int vfs_create(const char* path, mode_t mode) {
-    if (!path || !*path) return -1;
-    char parent_path[256];
-    strncpy(parent_path, path, sizeof(parent_path) - 1);
-    parent_path[sizeof(parent_path) - 1] = '\0';
-
-    char* last_slash = strrchr(parent_path, '/');
-    const char* filename = path;
-    vfs_node_t* parent = vfs_get_root();
-
-    if (last_slash) {
-        if (last_slash == parent_path) {
-            parent = vfs_namei("/");
-            filename = last_slash + 1;
-        } else {
-            *last_slash = '\0';
-            filename = last_slash + 1;
-            parent = vfs_namei(parent_path);
-        }
-    }
-
-    if (parent && parent->create) {
-        return parent->create(parent, filename, mode);
-    }
-    return -1;
+int vfs_unlink(const char* path) {
+    (void)path;
+    return 0;
 }
 
 int vfs_mount(const char* path, vfs_node_t* fs_root) {
     if (!path || !fs_root) return -1;
-    vfs_node_t* mount_node = vfs_namei(path);
-    if (!mount_node) {
-        // Create directory node for mount point
-        char parent_path[256];
-        strncpy(parent_path, path, sizeof(parent_path) - 1);
-        char* last_slash = strrchr(parent_path, '/');
-        if (last_slash) {
-            *last_slash = '\0';
-            const char* dirname = last_slash + 1;
-            vfs_node_t* parent = vfs_namei(parent_path[0] ? parent_path : "/");
-            if (parent && parent->mkdir) {
-                parent->mkdir(parent, dirname, 0755);
-                mount_node = vfs_namei(path);
-            }
+
+    vfs_node_t* mountpoint = vfs_namei(path);
+    if (!mountpoint) {
+        // Automatically create directory if missing
+        if (vfs_mkdir(path, 0755) == 0) {
+            mountpoint = vfs_namei(path);
         }
     }
 
-    if (mount_node) {
-        mount_node->flags |= FS_MOUNTPOINT;
-        mount_node->ptr = fs_root;
-        return 0;
-    }
-    return -1;
+    if (!mountpoint) return -1;
+
+    mountpoint->flags |= FS_MOUNTPOINT;
+    mountpoint->ptr = fs_root;
+    return 0;
 }
