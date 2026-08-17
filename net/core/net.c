@@ -235,6 +235,9 @@ void net_receive(const uint8_t* packet, uint16_t length) {
             const ip_header_t* ip = (const ip_header_t*)payload;
             uint8_t ihl = (ip->ihl_version & 0x0F) * 4;
             if (payload_len >= ihl) {
+                // Dynamically learn sender's MAC address in ARP cache
+                arp_cache_insert(ip->src_ip, eth->src_mac);
+
                 // NetFilter inspection hook
                 if (filter_evaluate(FILTER_HOOK_LOCAL_IN, ip->protocol, ip->src_ip, ip->dst_ip, 0, 0, payload_len) == FILTER_ACTION_DROP) {
                     return; // Dropped by firewall
@@ -315,8 +318,8 @@ void net_init(void) {
     primary_if.dns     = ip_parse("10.0.2.3");
     primary_if.is_up   = true;
 
-    // Seed gateway in ARP cache
-    uint8_t qemu_gw[6] = {0x52, 0x54, 0x00, 0x12, 0x34, 0x56};
+    // Seed gateway in ARP cache (QEMU Virtual Router MAC)
+    uint8_t qemu_gw[6] = {0x52, 0x55, 0x0A, 0x00, 0x02, 0x02};
     arp_cache_insert(primary_if.gateway, qemu_gw);
 
     printk(KERN_INFO "NET: eth0 configured (IP: 10.0.2.15, GW: 10.0.2.2, Mask: 255.255.255.0)\n");

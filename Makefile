@@ -123,6 +123,12 @@ run-server: $(IMAGE)
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
 		-device e1000,netdev=net0 -serial stdio -display none
 
+run-remote: $(IMAGE)
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 \
+		-serial telnet:0.0.0.0:2222,server,nowait -display none
+
 debug: $(IMAGE)
 	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
