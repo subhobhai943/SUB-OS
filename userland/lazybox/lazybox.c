@@ -1262,9 +1262,25 @@ static int applet_netstat(int argc, char** argv) {
     (void)argc; (void)argv;
     printk(ANSI_BRIGHT_CYAN "Active Internet connections (servers and established)\n" ANSI_RESET);
     printk(ANSI_YELLOW "Proto Recv-Q Send-Q Local Address           Foreign Address         State\n" ANSI_RESET);
-    printk("tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN\n");
-    printk("udp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN\n");
-    printk("udp        0      0 0.0.0.0:68              0.0.0.0:*               ESTABLISHED\n");
+
+    if (sshd_is_running()) {
+        printk("tcp        0      0 0.0.0.0:%-5u           0.0.0.0:*               LISTEN (sshd)\n", sshd_get_port());
+    }
+    if (httpd_is_running()) {
+        printk("tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN (httpd)\n");
+    }
+    printk("udp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN (dns)\n");
+    printk("udp        0      0 0.0.0.0:68              0.0.0.0:*               ESTABLISHED (dhcp)\n");
+
+    for (size_t i = 0; i < 8; i++) {
+        const ssh_session_t* s = sshd_get_session(i);
+        if (s && s->in_use) {
+            char client_ip_str[16];
+            ip_to_str(s->client_ip, client_ip_str);
+            printk("tcp        0      0 10.0.2.15:22            %s:%-5u         ESTABLISHED (%s)\n",
+                   client_ip_str, s->client_port, s->username);
+        }
+    }
     return 0;
 }
 

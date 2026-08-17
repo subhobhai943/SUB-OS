@@ -1,4 +1,6 @@
 #include <net/net.h>
+#include <net/tcp.h>
+#include <net/filter.h>
 #include <drivers/e1000.h>
 #include <lib/string.h>
 #include <lib/printf.h>
@@ -233,8 +235,15 @@ void net_receive(const uint8_t* packet, uint16_t length) {
             const ip_header_t* ip = (const ip_header_t*)payload;
             uint8_t ihl = (ip->ihl_version & 0x0F) * 4;
             if (payload_len >= ihl) {
+                // NetFilter inspection hook
+                if (filter_evaluate(FILTER_HOOK_LOCAL_IN, ip->protocol, ip->src_ip, ip->dst_ip, 0, 0, payload_len) == FILTER_ACTION_DROP) {
+                    return; // Dropped by firewall
+                }
+
                 if (ip->protocol == IP_PROTO_ICMP) {
                     net_handle_icmp(ip->src_ip, payload + ihl, payload_len - ihl);
+                } else if (ip->protocol == IP_PROTO_TCP) {
+                    tcp_receive(payload + ihl, payload_len - ihl, ip->src_ip);
                 }
             }
         }
