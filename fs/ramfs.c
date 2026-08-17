@@ -173,13 +173,19 @@ vfs_node_t* ramfs_create_root(void) {
     root->node.mkdir   = ramfs_mkdir_impl;
     root->node.create  = ramfs_create_impl;
 
-    // Seed default file system structure
     vfs_node_t* etc = ramfs_add_dir(&root->node, "etc");
     ramfs_add_dir(&root->node, "bin");
     ramfs_add_dir(&root->node, "dev");
     ramfs_add_dir(&root->node, "proc");
+    ramfs_add_dir(&root->node, "sys");
     ramfs_add_dir(&root->node, "home");
     ramfs_add_dir(&root->node, "tmp");
+    vfs_node_t* mnt = ramfs_add_dir(&root->node, "mnt");
+    if (mnt) {
+        ramfs_add_dir(mnt, "fat32");
+        ramfs_add_dir(mnt, "ramdisk");
+        ramfs_add_dir(mnt, "nvme");
+    }
 
     if (etc) {
         ramfs_add_file(etc, "hostname", "sub-os\n", 7);
