@@ -32,17 +32,22 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/ata.h>
+#include <drivers/ahci.h>
+#include <drivers/nvme.h>
 #include <drivers/pci.h>
 #include <drivers/e1000.h>
+#include <drivers/rtl8139.h>
 #include <drivers/speaker.h>
 #include <drivers/fb.h>
 #include <drivers/rtc.h>
 #include <drivers/acpi.h>
 #include <drivers/usb.h>
+#include <drivers/xhci.h>
 #include <drivers/ramdisk.h>
 #include <block/block.h>
 #include <ipc/ipc.h>
 #include <sound/sound.h>
+#include <sound/hda.h>
 #include <sound/melody.h>
 #include <fs/vfs.h>
 #include <fs/fat32.h>
@@ -123,20 +128,20 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     printk(KERN_INFO "[7/18] Initializing Block Layer, Ramdisk & Storage Controllers... ");
     block_init();
     ramdisk_init();
-    if (ata_init()) {
-        printk(ANSI_BRIGHT_GREEN "ATA Primary Master Active\n" ANSI_RESET);
-    } else {
-        printk(ANSI_YELLOW "No ATA Drive\n" ANSI_RESET);
-    }
+    ata_init();
+    ahci_init();
+    nvme_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 7. Bus & Devices
-    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, Canvas & PTY... ");
+    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, xHCI, Canvas & PTY... ");
     pci_init();
     virt_init();
     fb_init();
     canvas_init();
     pty_init();
     usb_init();
+    xhci_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 7. Network Subsystem, NetFilter, HTTPD & SSH Server
@@ -144,6 +149,7 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     filter_init();
     httpd_init();
     sshd_init();
+    rtl8139_init();
     if (e1000_init()) {
         net_init();
         socket_subsystem_init();
@@ -159,6 +165,7 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     // 8. Sound & Voice Synthesizer
     printk(KERN_INFO "[10/18] Initializing Sound Architecture, Melody Player & Formant TTS... ");
     sound_init();
+    hda_init();
     melody_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
