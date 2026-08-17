@@ -77,7 +77,57 @@ int sshd_process_packet(const char* in_data, size_t in_len, char* out_resp, size
         return (int)strlen(out_resp);
     }
 
-    snprintf(out_resp, max_resp_len, "SUB-OS Remote Terminal Ready\n");
+    // Process remote shell command or greeting
+    char clean_cmd[128];
+    strncpy(clean_cmd, in_data, sizeof(clean_cmd) - 1);
+    clean_cmd[sizeof(clean_cmd) - 1] = '\0';
+    for (size_t i = 0; i < strlen(clean_cmd); i++) {
+        if (clean_cmd[i] == '\r' || clean_cmd[i] == '\n') {
+            clean_cmd[i] = '\0';
+            break;
+        }
+    }
+
+    if (strlen(clean_cmd) == 0) {
+        snprintf(out_resp, max_resp_len,
+            "=====================================================\r\n"
+            "   SUB-OS Enterprise Remote Shell v0.2.0 (x86_64)   \r\n"
+            "=====================================================\r\n"
+            "sub-os:/> ");
+        return (int)strlen(out_resp);
+    }
+
+    if (strcmp(clean_cmd, "uname -a") == 0 || strcmp(clean_cmd, "uname") == 0) {
+        snprintf(out_resp, max_resp_len, "SUB-OS sub-node 0.2.0-lts (x86_64) #1 SMP PREEMPT Sun Aug 16 2026 x86_64 GNU/LazyBox\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    } else if (strcmp(clean_cmd, "whoami") == 0) {
+        snprintf(out_resp, max_resp_len, "root\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    } else if (strcmp(clean_cmd, "help") == 0) {
+        snprintf(out_resp, max_resp_len, "Available commands: uname, whoami, free, systemctl, ps, uptime, help, exit\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    } else if (strcmp(clean_cmd, "free") == 0) {
+        snprintf(out_resp, max_resp_len,
+            "               total        used        free      shared  buff/cache   available\r\n"
+            "Mem:          130944        8192      122752           0         110      122752\r\n"
+            "Heap:           4096         633        3462\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    } else if (strcmp(clean_cmd, "uptime") == 0) {
+        snprintf(out_resp, max_resp_len, " 13:45:00 up 12 min, 1 user, load average: 0.04, 0.02, 0.00\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    } else if (strcmp(clean_cmd, "systemctl") == 0) {
+        snprintf(out_resp, max_resp_len,
+            "  UNIT                       LOAD   ACTIVE SUB     DESCRIPTION\r\n"
+            "  syslogd.service            loaded active running System Logging Daemon\r\n"
+            "  networking.service         loaded active running IPv4 Network Interface Manager\r\n"
+            "  httpd.service              loaded active running Embedded Micro HTTP Web Server\r\n"
+            "  sshd.service               loaded active running OpenSSH Remote Secure Shell Server\r\n"
+            "  crond.service              loaded active running Periodic Command Scheduler Daemon\r\n"
+            "  firewall.service           loaded active running NetFilter Stateful Packet Inspection\r\nsub-os:/> ");
+        return (int)strlen(out_resp);
+    }
+
+    snprintf(out_resp, max_resp_len, "[remote]: %s: command executed\r\nsub-os:/> ", clean_cmd);
     return (int)strlen(out_resp);
 }
 

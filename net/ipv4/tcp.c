@@ -180,6 +180,17 @@ void tcp_receive(const uint8_t* packet, uint16_t length, uint32_t src_ip) {
     }
 
     // Handle Data / ACK
+    if (conn->state == TCP_STATE_SYN_RCVD) {
+        conn->state = TCP_STATE_ESTABLISHED;
+        if (is_ssh_port && payload_len == 0) {
+            const char* banner = SSH_BANNER;
+            uint16_t blen = (uint16_t)strlen(banner);
+            tcp_send_packet(src_ip, dst_port, src_port, conn->seq_num, conn->ack_num,
+                            TCP_FLAG_PSH | TCP_FLAG_ACK, banner, blen);
+            conn->seq_num += blen;
+            return;
+        }
+    }
     conn->state = TCP_STATE_ESTABLISHED;
 
     if (payload_len > 0) {
