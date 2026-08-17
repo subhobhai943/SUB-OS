@@ -9,6 +9,9 @@
 #include <kernel/module.h>
 #include <kernel/trace.h>
 #include <kernel/namespace.h>
+#include <kernel/syslog.h>
+#include <kernel/cron.h>
+#include <kernel/metrics.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/isr.h>
@@ -47,13 +50,16 @@
 #include <net/dhcp.h>
 #include <net/dns.h>
 #include <net/filter.h>
+#include <net/http.h>
 #include <crypto/crypto.h>
 #include <certs/certs.h>
 #include <security/security.h>
+#include <security/auth.h>
 #include <io_uring/io_uring.h>
 #include <usr/initramfs.h>
 #include <virt/virt.h>
 #include <init/init.h>
+#include <init/service.h>
 #include <init/version.h>
 #include <userland/lazybox.h>
 #include <userland/sh.h>
@@ -124,9 +130,10 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     usb_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 7. Network Subsystem & Firewall
-    printk(KERN_INFO "[9/18] Initializing Network Protocol Stack & NetFilter Firewall... ");
+    // 7. Network Subsystem, NetFilter & Web Server
+    printk(KERN_INFO "[9/18] Initializing Network Stack, NetFilter & Micro HTTPD... ");
     filter_init();
+    httpd_init();
     if (e1000_init()) {
         net_init();
         socket_subsystem_init();
@@ -145,11 +152,12 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     melody_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 9. Crypto, Certificates, LSM Security & Container Namespaces
-    printk(KERN_INFO "[11/18] Initializing X.509 Keyring, LSM Security & Namespaces... ");
+    // 9. Crypto, Certificates, LSM Security, Authentication & Namespaces
+    printk(KERN_INFO "[11/18] Initializing X.509 Keyring, Shadow Auth & Namespaces... ");
     prng_seed(0, 0);
     certs_init();
     security_init();
+    auth_init();
     namespace_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
@@ -172,13 +180,17 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     initramfs_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 13. Kernel Core: Signals, Workqueues, Modules, Syscalls & Tracing
-    printk(KERN_INFO "[15/18] Initializing Signals, Workqueues, Syscalls, Modules & Tracing... ");
+    // 13. Kernel Core: Signals, Modules, Syscalls, Tracing, Syslog, Metrics, Crond & Systemd
+    printk(KERN_INFO "[15/18] Initializing Syslog, Metrics, Cron, Tracing & Services... ");
     signal_init();
     workqueue_init();
     syscall_init();
     module_init_subsystem();
     trace_init();
+    syslog_init();
+    metrics_init();
+    cron_init();
+    service_manager_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 14. Preemptive Multi-Tasking & Userland

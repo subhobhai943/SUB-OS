@@ -70,14 +70,14 @@ void isr_handler_common(registers_t* regs) {
     }
 }
 
-extern void* isr_stub_default;
+extern void isr_stub_default(void);
 
 void isr_init(void) {
     memset(interrupt_handlers, 0, sizeof(interrupt_handlers));
 
     // 1. Initialize all 256 gates to isr_stub_default
     for (int i = 0; i < 256; i++) {
-        idt_set_gate(i, isr_stub_default, 0x8E);
+        idt_set_gate(i, (void*)isr_stub_default, 0x8E);
     }
 
     // 2. Install dedicated CPU exception gates (0-31) and hardware IRQ gates (32-47)

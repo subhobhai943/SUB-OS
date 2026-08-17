@@ -3,7 +3,7 @@
 
 #include <block/block.h>
 
-#define RAMDISK_SIZE (4 * 1024 * 1024) // 4 MB Ramdisk
+#define RAMDISK_SIZE (512 * 1024) // 512 KB Ramdisk (1024 sectors)
 #define RAMDISK_SECTOR_SIZE 512
 
 void ramdisk_init(void);

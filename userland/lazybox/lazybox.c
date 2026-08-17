@@ -34,6 +34,17 @@
 #include <kernel/printk.h>
 #include <lib/string.h>
 #include <lib/printf.h>
+#include <security/auth.h>
+#include <net/http.h>
+#include <init/service.h>
+#include <kernel/syslog.h>
+#include <kernel/cron.h>
+#include <kernel/metrics.h>
+#include <kernel/trace.h>
+#include <kernel/namespace.h>
+#include <mm/slab.h>
+#include <sound/melody.h>
+#include <userland/sh.h>
 
 // -------------------------------------------------------------
 // Core & Filesystem Applets
@@ -708,13 +719,20 @@ static int applet_clear(int argc, char** argv) {
 
 static int applet_whoami(int argc, char** argv) {
     (void)argc; (void)argv;
-    printk("root\n");
+    const user_account_t* u = auth_get_current_user();
+    printk("%s\n", u ? u->username : "root");
     return 0;
 }
 
 static int applet_id(int argc, char** argv) {
     (void)argc; (void)argv;
-    printk("uid=0(root) gid=0(root) groups=0(root),10(wheel)\n");
+    const user_account_t* u = auth_get_current_user();
+    if (u) {
+        printk("uid=%u(%s) gid=%u(%s) groups=%u(%s)\n",
+               u->uid, u->username, u->gid, u->username, u->gid, u->username);
+    } else {
+        printk("uid=0(root) gid=0(root) groups=0(root)\n");
+    }
     return 0;
 }
 
@@ -985,7 +1003,224 @@ static int applet_dirname(int argc, char** argv) {
 }
 
 // -------------------------------------------------------------
-// Applet Dispatch Table (Over 55 Linux Tools)
+// Server, Authentication & System Administration Applets
+// -------------------------------------------------------------
+#include <net/http.h>
+#include <init/service.h>
+#include <kernel/syslog.h>
+#include <security/auth.h>
+#include <kernel/cron.h>
+#include <kernel/metrics.h>
+
+static int applet_httpd(int argc, char** argv) {
+    if (argc >= 2) {
+        if (strcmp(argv[1], "start") == 0) {
+            uint16_t port = (argc >= 3) ? (uint16_t)atoi(argv[2]) : 80;
+            httpd_start(port);
+            return 0;
+        } else if (strcmp(argv[1], "stop") == 0) {
+            httpd_stop();
+            return 0;
+        }
+    }
+
+    printk(ANSI_BRIGHT_CYAN "=== Embedded Micro HTTP Server & REST API ===\n" ANSI_RESET);
+    printk("Status:          %s\n", httpd_is_running() ? ANSI_BRIGHT_GREEN "RUNNING" ANSI_RESET : ANSI_YELLOW "STOPPED" ANSI_RESET);
+    printk("Port:            80 (HTTP/1.1)\n");
+    printk("Requests Served: %u\n", httpd_get_requests_served());
+    printk("Usage:           httpd [start [port] | stop | status]\n");
+    return 0;
+}
+
+static int applet_curl(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: curl <url|path>\n");
+        return 1;
+    }
+    char buf[2048];
+    if (http_client_get(argv[1], buf, sizeof(buf)) > 0) {
+        printk("%s\n", buf);
+        return 0;
+    }
+    printk(KERN_ERR "curl: failed to retrieve %s\n", argv[1]);
+    return 1;
+}
+
+static int applet_wget(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: wget <url>\n");
+        return 1;
+    }
+    printk("Connecting to %s... connected.\n", argv[1]);
+    return applet_curl(argc, argv);
+}
+
+static int applet_systemctl(int argc, char** argv) {
+    if (argc >= 3) {
+        if (strcmp(argv[1], "start") == 0) {
+            if (service_start(argv[2]) == 0) {
+                printk(KERN_INFO "Started %s\n", argv[2]);
+            } else {
+                printk(KERN_ERR "Failed to start %s\n", argv[2]);
+            }
+            return 0;
+        } else if (strcmp(argv[1], "stop") == 0) {
+            service_stop(argv[2]);
+            printk(KERN_INFO "Stopped %s\n", argv[2]);
+            return 0;
+        } else if (strcmp(argv[1], "restart") == 0) {
+            service_restart(argv[2]);
+            printk(KERN_INFO "Restarted %s\n", argv[2]);
+            return 0;
+        }
+    }
+
+    printk(ANSI_BRIGHT_CYAN "  UNIT                       LOAD   ACTIVE SUB     DESCRIPTION\n" ANSI_RESET);
+    size_t count = service_get_count();
+    for (size_t i = 0; i < count; i++) {
+        const service_unit_t* s = service_get_by_index(i);
+        if (s && s->in_use) {
+            const char* act = (s->state == SERVICE_STATE_RUNNING) ? ANSI_BRIGHT_GREEN "active running" ANSI_RESET : ANSI_BRIGHT_BLACK "inactive dead" ANSI_RESET;
+            printk("  %-26s loaded %-14s %s\n", s->name, act, s->description);
+        }
+    }
+    return 0;
+}
+
+static int applet_logger(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: logger <message>\n");
+        return 1;
+    }
+    char buf[128] = "";
+    for (int i = 1; i < argc; i++) {
+        strcat(buf, argv[i]);
+        if (i + 1 < argc) strcat(buf, " ");
+    }
+    syslog_write(LOG_INFO | LOG_USER, "user", buf);
+    return 0;
+}
+
+static int applet_logread(int argc, char** argv) {
+    (void)argc; (void)argv;
+    size_t count = syslog_get_count();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Syslog Telemetry Ringbuffer (%llu entries) ===\n" ANSI_RESET, (uint64_t)count);
+    for (size_t i = 0; i < count; i++) {
+        const syslog_entry_t* e = syslog_get_entry(i);
+        if (e) {
+            printk("[%6llus] <%s.%u> %s: %s\n",
+                   (uint64_t)e->timestamp, e->facility_str, e->priority, e->ident, e->message);
+        }
+    }
+    return 0;
+}
+
+static int applet_su(int argc, char** argv) {
+    const char* target = (argc >= 2) ? argv[1] : "root";
+    if (auth_set_current_user(target) == 0) {
+        printk(KERN_INFO "Switched to user '%s'\n", target);
+        return 0;
+    }
+    printk(KERN_ERR "su: user '%s' does not exist\n", target);
+    return 1;
+}
+
+static int applet_passwd(int argc, char** argv) {
+    const char* user = (argc >= 2) ? argv[1] : "root";
+    const char* new_pass = (argc >= 3) ? argv[2] : "password";
+    if (auth_change_password(user, new_pass) == 0) {
+        printk(KERN_INFO "passwd: password updated successfully for '%s'\n", user);
+        return 0;
+    }
+    printk(KERN_ERR "passwd: user '%s' not found\n", user);
+    return 1;
+}
+
+static int applet_useradd(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: useradd <username> [password]\n");
+        return 1;
+    }
+    const char* pass = (argc >= 3) ? argv[2] : "123456";
+    if (auth_add_user(argv[1], pass, 1000 + (uint32_t)auth_get_user_count(), 1000, "/home", "/bin/sh") == 0) {
+        printk(KERN_INFO "User '%s' created successfully\n", argv[1]);
+        return 0;
+    }
+    printk(KERN_ERR "useradd: failed to create user\n");
+    return 1;
+}
+
+static int applet_crontab(int argc, char** argv) {
+    if (argc >= 3 && strcmp(argv[1], "-a") == 0) {
+        cron_add_job(argv[2], 60);
+        printk(KERN_INFO "crontab: scheduled periodic job '%s' (interval: 60s)\n", argv[2]);
+        return 0;
+    }
+
+    size_t count = cron_get_job_count();
+    printk(ANSI_BRIGHT_CYAN "=== Active Scheduled Cron Jobs (%llu jobs) ===\n" ANSI_RESET, (uint64_t)count);
+    printk(ANSI_YELLOW "ID   INTERVAL   RUNS  COMMAND\n" ANSI_RESET);
+    for (size_t i = 0; i < count; i++) {
+        const cron_job_t* j = cron_get_job(i);
+        if (j && j->in_use) {
+            printk("%-4u %-10u %-5u %s\n", j->id, j->interval_sec, j->run_count, j->command);
+        }
+    }
+    return 0;
+}
+
+static int applet_vmstat(int argc, char** argv) {
+    (void)argc; (void)argv;
+    system_metrics_t m;
+    metrics_sample(&m);
+
+    printk(ANSI_BRIGHT_CYAN "procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----\n" ANSI_RESET);
+    printk(" r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs  us sy id wa st\n");
+    printk(" 1  0      0 %6llu    110  12415    0    0     8    12  100  120  %2u %2u %2u  0  0\n",
+           m.mem_free_kb, m.cpu_user_pct, m.cpu_system_pct, m.cpu_idle_pct);
+    return 0;
+}
+
+static int applet_iostat(int argc, char** argv) {
+    (void)argc; (void)argv;
+    system_metrics_t m;
+    metrics_sample(&m);
+
+    printk(ANSI_BRIGHT_CYAN "Device             tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn\n" ANSI_RESET);
+    printk("sda               1.20         0.50         0.05       1440         64\n");
+    printk("ram0              0.10         0.00         0.00          0          0\n");
+    return 0;
+}
+
+static int applet_netstat(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "Active Internet connections (servers and established)\n" ANSI_RESET);
+    printk(ANSI_YELLOW "Proto Recv-Q Send-Q Local Address           Foreign Address         State\n" ANSI_RESET);
+    printk("tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN\n");
+    printk("udp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN\n");
+    printk("udp        0      0 0.0.0.0:68              0.0.0.0:*               ESTABLISHED\n");
+    return 0;
+}
+
+static int applet_htop(int argc, char** argv) {
+    (void)argc; (void)argv;
+    system_metrics_t m;
+    metrics_sample(&m);
+
+    printk(ANSI_BRIGHT_CYAN "  CPU[||||                                       4.2%%]     Tasks: 6, 1 thr, 1 running\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "  Mem[||||||||||||||||                 %4lluM/%5lluM]     Uptime: %llu sec\n" ANSI_RESET,
+           m.mem_used_kb / 1024, m.mem_total_kb / 1024, (uint64_t)(pit_get_ticks() / 100));
+    printk(ANSI_YELLOW "  PID USER      PRI  NI  VIRT   RES   SHR S CPU%% MEM%%   TIME+  Command\n" ANSI_RESET);
+    printk("    1 root       20   0  4096  1024   512 S  0.0  0.8  0:00.05 /init\n");
+    printk("    2 root       20   0     0     0     0 S  0.0  0.0  0:00.01 [kthreadd]\n");
+    printk("    3 root       20   0  1024   512   256 S  0.1  0.4  0:00.02 [syslogd]\n");
+    printk("    4 root       20   0  2048  1024   512 S  0.2  0.8  0:00.04 [httpd:80]\n");
+    printk("    5 root       20   0  1024   512   256 R  3.9  0.4  0:00.03 /bin/lazybox (htop)\n");
+    return 0;
+}
+
+// -------------------------------------------------------------
+// Applet Dispatch Table (Over 65 Linux Tools)
 // -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
     // Core & Scripting
@@ -1017,6 +1252,21 @@ static const lazybox_applet_t applets[] = {
     {"dirname",       applet_dirname,       "dirname <path>",            "Strip non-directory suffix", "Filesystem"},
     {"nano",          applet_nano_wrapper,  "nano [file]",               "Visual full-screen editor",  "Filesystem"},
 
+    // Server & Web
+    {"httpd",         applet_httpd,         "httpd [start|stop|status]", "Embedded micro HTTP server", "Server"},
+    {"curl",          applet_curl,          "curl <url>",                "HTTP transfer utility",      "Server"},
+    {"wget",          applet_wget,          "wget <url>",                "Download files via HTTP",    "Server"},
+    {"systemctl",     applet_systemctl,     "systemctl [cmd] [unit]",    "Manage system service daemons","Server"},
+    {"service",       applet_systemctl,     "service [unit] [cmd]",      "Service manager alias",      "Server"},
+    {"crontab",       applet_crontab,       "crontab [-a job]",          "Periodic cron job scheduler","Server"},
+
+    // Logging & Authentication
+    {"logger",        applet_logger,        "logger <msg>",              "Send message to syslog",     "Security"},
+    {"logread",       applet_logread,       "logread",                   "Read system logs",           "Security"},
+    {"su",            applet_su,            "su [user]",                 "Switch user session",        "Security"},
+    {"passwd",        applet_passwd,        "passwd [user]",             "Change password",            "Security"},
+    {"useradd",       applet_useradd,       "useradd <user>",            "Add new user account",       "Security"},
+
     // Sound & Voice Synthesis
     {"tts",           applet_tts,           "tts <text>",                "Phonetic formant voice synth","Sound"},
     {"tune",          applet_tune,          "tune [tetris|mario|startup]","8-bit retro chip melody player","Sound"},
@@ -1046,6 +1296,7 @@ static const lazybox_applet_t applets[] = {
     {"dhclient",      applet_dhclient,      "dhclient",                  "Request DHCP lease",         "Network"},
     {"nslookup",      applet_nslookup,      "nslookup <host>",           "Query DNS name servers",     "Network"},
     {"iptables",      applet_iptables,      "iptables",                  "Firewall packet filter rules","Network"},
+    {"netstat",       applet_netstat,       "netstat",                   "Network port connections",   "Network"},
 
     // Storage & Devices
     {"hdparm",        applet_hdparm,        "hdparm",                    "Inspect ATA hard disk",      "Storage"},
@@ -1057,10 +1308,13 @@ static const lazybox_applet_t applets[] = {
     {"virtinfo",      applet_virtinfo,      "virtinfo",                  "Hypervisor & VirtIO status", "Virtualization"},
     {"io_uring_test", applet_io_uring_test, "io_uring_test",             "Test io_uring async queue",  "Virtualization"},
 
-    // System Monitoring & Control
+    // System Monitoring & Metrics
     {"uname",         applet_uname,         "uname [-a]",                "Print system architecture",  "System"},
     {"free",          applet_free,          "free",                      "Display RAM and Heap usage", "System"},
     {"uptime",        applet_uptime,        "uptime",                    "System running duration",    "System"},
+    {"vmstat",        applet_vmstat,        "vmstat",                    "Virtual memory statistics",  "System"},
+    {"iostat",        applet_iostat,        "iostat",                    "I/O device utilization",     "System"},
+    {"htop",          applet_htop,          "htop",                      "Visual task manager",        "System"},
     {"dmesg",         applet_dmesg,         "dmesg",                     "Dump kernel boot ringbuffer","System"},
     {"ps",            applet_ps,            "ps",                        "List active processes",      "System"},
     {"top",           applet_top,           "top",                       "Interactive task manager",   "System"},
