@@ -13,10 +13,10 @@ void service_manager_init(void) {
     memset(services_table, 0, sizeof(services_table));
     registered_count = 0;
 
-    // Register essential server services
     service_register("syslogd.service", "System Logging Daemon", default_dummy_start, default_dummy_stop, true);
     service_register("networking.service", "IPv4 Network Interface Manager", default_dummy_start, default_dummy_stop, true);
     service_register("httpd.service", "Embedded Micro HTTP Web Server", default_dummy_start, default_dummy_stop, true);
+    service_register("sshd.service", "OpenSSH Remote Secure Shell Server", default_dummy_start, default_dummy_stop, true);
     service_register("crond.service", "Periodic Command Scheduler Daemon", default_dummy_start, default_dummy_stop, true);
     service_register("firewall.service", "NetFilter Stateful Packet Inspection", default_dummy_start, default_dummy_stop, true);
 
@@ -27,7 +27,7 @@ void service_manager_init(void) {
         }
     }
 
-    printk(KERN_INFO "SYSTEMD: Service Unit Manager initialized (5 services online)\n");
+    printk(KERN_INFO "SYSTEMD: Service Unit Manager initialized (6 services online)\n");
 }
 
 int service_register(const char* name, const char* desc, service_func_t start_fn, service_func_t stop_fn, bool enable_at_boot) {

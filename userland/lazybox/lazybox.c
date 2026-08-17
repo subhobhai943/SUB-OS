@@ -1032,6 +1032,72 @@ static int applet_httpd(int argc, char** argv) {
     return 0;
 }
 
+#include <net/ssh.h>
+
+static int applet_sshd(int argc, char** argv) {
+    if (argc >= 2) {
+        if (strcmp(argv[1], "start") == 0) {
+            uint16_t port = (argc >= 3) ? (uint16_t)atoi(argv[2]) : 22;
+            sshd_start(port);
+            return 0;
+        } else if (strcmp(argv[1], "stop") == 0) {
+            sshd_stop();
+            return 0;
+        }
+    }
+
+    printk(ANSI_BRIGHT_CYAN "=== OpenSSH Remote Secure Shell Server (SSHD) ===\n" ANSI_RESET);
+    printk("Status:          %s\n", sshd_is_running() ? ANSI_BRIGHT_GREEN "RUNNING" ANSI_RESET : ANSI_YELLOW "STOPPED" ANSI_RESET);
+    printk("Port:            %u (SSH-2.0)\n", sshd_get_port());
+    printk("Active Sessions: %u\n", sshd_get_sessions_count());
+    printk("Usage:           sshd [start [port] | stop | status]\n");
+    return 0;
+}
+
+static int applet_ssh(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: ssh [user@]hostname [command]\n");
+        return 1;
+    }
+
+    char username[32] = "root";
+    char host[64] = "localhost";
+    uint16_t port = 22;
+
+    const char* target = argv[1];
+    const char* at = strchr(target, '@');
+    if (at) {
+        size_t ulen = at - target;
+        if (ulen < sizeof(username)) {
+            memcpy(username, target, ulen);
+            username[ulen] = '\0';
+        }
+        strncpy(host, at + 1, sizeof(host) - 1);
+    } else {
+        strncpy(host, target, sizeof(host) - 1);
+    }
+
+    char cmd_buf[128] = "";
+    if (argc >= 3) {
+        for (int i = 2; i < argc; i++) {
+            strcat(cmd_buf, argv[i]);
+            if (i + 1 < argc) strcat(cmd_buf, " ");
+        }
+    }
+
+    char out_resp[1024];
+    if (ssh_client_execute(username, username, host, port, cmd_buf, out_resp, sizeof(out_resp)) == 0) {
+        printk("%s", out_resp);
+        if (cmd_buf[0] != '\0') {
+            // Execute the requested command
+            return lazybox_run_applet(argv[2], argc - 2, &argv[2]);
+        }
+        return 0;
+    }
+    printk(KERN_ERR "%s", out_resp);
+    return 1;
+}
+
 static int applet_curl(int argc, char** argv) {
     if (argc < 2) {
         printk(KERN_INFO "Usage: curl <url|path>\n");
@@ -1254,6 +1320,8 @@ static const lazybox_applet_t applets[] = {
 
     // Server & Web
     {"httpd",         applet_httpd,         "httpd [start|stop|status]", "Embedded micro HTTP server", "Server"},
+    {"sshd",          applet_sshd,          "sshd [start|stop|status]",  "OpenSSH server daemon",      "Server"},
+    {"ssh",           applet_ssh,           "ssh [user@]host [cmd]",     "Secure shell remote client", "Server"},
     {"curl",          applet_curl,          "curl <url>",                "HTTP transfer utility",      "Server"},
     {"wget",          applet_wget,          "wget <url>",                "Download files via HTTP",    "Server"},
     {"systemctl",     applet_systemctl,     "systemctl [cmd] [unit]",    "Manage system service daemons","Server"},

@@ -130,10 +130,11 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     usb_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 7. Network Subsystem, NetFilter & Web Server
-    printk(KERN_INFO "[9/18] Initializing Network Stack, NetFilter & Micro HTTPD... ");
+    // 7. Network Subsystem, NetFilter, HTTPD & SSH Server
+    printk(KERN_INFO "[9/18] Initializing Network Stack, NetFilter, HTTPD & SSHD... ");
     filter_init();
     httpd_init();
+    sshd_init();
     if (e1000_init()) {
         net_init();
         socket_subsystem_init();
