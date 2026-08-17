@@ -34,6 +34,11 @@
 #include <drivers/ata.h>
 #include <drivers/ahci.h>
 #include <drivers/nvme.h>
+#include <drivers/bochs.h>
+#include <drivers/virtio_blk.h>
+#include <drivers/virtio_net.h>
+#include <drivers/virtio_rng.h>
+#include <drivers/hwmon.h>
 #include <drivers/pci.h>
 #include <drivers/e1000.h>
 #include <drivers/rtl8139.h>
@@ -131,17 +136,21 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     ata_init();
     ahci_init();
     nvme_init();
+    virtio_blk_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 7. Bus & Devices
-    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, xHCI, Canvas & PTY... ");
+    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, xHCI, VBE, Canvas & PTY... ");
     pci_init();
     virt_init();
     fb_init();
+    bochs_vbe_init();
     canvas_init();
     pty_init();
     usb_init();
     xhci_init();
+    virtio_rng_init();
+    hwmon_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // 7. Network Subsystem, NetFilter, HTTPD & SSH Server
@@ -150,6 +159,7 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     httpd_init();
     sshd_init();
     rtl8139_init();
+    virtio_net_init();
     if (e1000_init()) {
         net_init();
         socket_subsystem_init();

@@ -3,6 +3,7 @@
 #include <block/block.h>
 #include <mm/kmalloc.h>
 #include <lib/string.h>
+#include <lib/printf.h>
 #include <kernel/printk.h>
 
 static pci_device_t* ahci_pci_dev = NULL;

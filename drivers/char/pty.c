@@ -2,6 +2,7 @@
 #include <kernel/printk.h>
 #include <mm/kmalloc.h>
 #include <lib/string.h>
+#include <lib/printf.h>
 
 static pty_pair_t pty_pairs[PTY_MAX_PAIRS];
 

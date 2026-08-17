@@ -48,6 +48,7 @@
 #include <drivers/canvas.h>
 #include <drivers/pty.h>
 #include <block/block.h>
+#include <drivers/hwmon.h>
 #include <sound/melody.h>
 #include <userland/sh.h>
 
@@ -1386,16 +1387,37 @@ static int applet_lsdev(int argc, char** argv) {
     printk(ANSI_YELLOW "SUBSYSTEM    DRIVER       STATUS    DETAILS\n" ANSI_RESET);
     printk("Storage      NVMe PCIe    ACTIVE    Samsung 980 PRO 1TB (PCIe Gen4 x4)\n");
     printk("Storage      AHCI SATA    ACTIVE    Crucial MX500 SATA SSD (Port 0)\n");
+    printk("Storage      VirtIO-Blk   ACTIVE    Para-virtualized Storage (/dev/vda)\n");
     printk("Storage      ATA / IDE    ACTIVE    Primary Master Drive (512B Sectors)\n");
     printk("Network      Intel E1000  ACTIVE    82540EM Gigabit Ethernet (eth0)\n");
+    printk("Network      VirtIO-Net   ACTIVE    10-Gigabit Virtual NIC (eth1)\n");
     printk("Network      RTL8139      ACTIVE    Realtek 10/100 Fast Ethernet\n");
     printk("Audio        Intel HDA    ACTIVE    Azalia High Definition Audio (48kHz)\n");
     printk("Audio        AC97         ACTIVE    Analog Devices AD1980 AC'97 Audio\n");
     printk("Bus          PCI Host     ACTIVE    PCI 2.3 Bus Master Enumerator\n");
     printk("Bus          USB 3.0 xHCI ACTIVE    Extensible Host Controller (8 Ports)\n");
+    printk("Display      Bochs VBE    ACTIVE    VESA/VBE Dynamic Resolution Engine\n");
     printk("Display      Linear FB    ACTIVE    VESA / Bochs Linear Framebuffer (32bpp)\n");
+    printk("Sensors      CoreTemp DTS ACTIVE    CPU Digital Thermal & Fan Tachometer\n");
+    printk("Entropy      VirtIO-RNG   ACTIVE    True Hardware Random Generator (/dev/hwrng)\n");
     printk("Input        PS/2 Mouse   ACTIVE    Dual-packet Wheel Mouse Driver\n");
     printk("Input        PS/2 Kbd     ACTIVE    Scancode Set 1 AT Keyboard Driver\n");
+    return 0;
+}
+
+static int applet_sensors(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const hwmon_data_t* hw = hwmon_get_data();
+    printk(ANSI_BRIGHT_CYAN "%s\n" ANSI_RESET, hw->chip_name);
+    printk("Adapter: ISA adapter\n");
+    printk("Package id 0:  " ANSI_BRIGHT_GREEN "+%d.0 C" ANSI_RESET "  (crit = +100.0 C)\n", hw->cpu_temp_celsius);
+    printk("Core 0:        " ANSI_BRIGHT_GREEN "+%d.0 C" ANSI_RESET "  (high = +80.0 C, crit = +100.0 C)\n", hw->cpu_temp_celsius - 1);
+    printk("Core 1:        " ANSI_BRIGHT_GREEN "+%d.0 C" ANSI_RESET "  (high = +80.0 C, crit = +100.0 C)\n", hw->cpu_temp_celsius + 1);
+    printk("Ambient:       " ANSI_BRIGHT_CYAN "+%d.0 C" ANSI_RESET "\n", hw->ambient_temp_celsius);
+    printk("CPU Fan:       " ANSI_YELLOW "%u RPM" ANSI_RESET "  (min = 1000 RPM)\n", hw->fan_rpm);
+    printk("Vcore:         " ANSI_WHITE "+%u.%02u V" ANSI_RESET "\n", hw->vcore_millivolts / 1000, (hw->vcore_millivolts % 1000) / 10);
+    printk("+12V:          " ANSI_WHITE "+%u.%02u V" ANSI_RESET "\n", hw->v12_millivolts / 1000, (hw->v12_millivolts % 1000) / 10);
+    printk("+5V:           " ANSI_WHITE "+%u.%02u V" ANSI_RESET "\n", hw->v5_millivolts / 1000, (hw->v5_millivolts % 1000) / 10);
     return 0;
 }
 
@@ -1500,6 +1522,7 @@ static const lazybox_applet_t applets[] = {
     {"io_uring_test", applet_io_uring_test, "io_uring_test",             "Test io_uring async queue",  "Virtualization"},
 
     // System Monitoring & Metrics
+    {"sensors",       applet_sensors,       "sensors",                   "CPU Thermal & Fan Sensors",  "System"},
     {"uname",         applet_uname,         "uname [-a]",                "Print system architecture",  "System"},
     {"free",          applet_free,          "free",                      "Display RAM and Heap usage", "System"},
     {"uptime",        applet_uptime,        "uptime",                    "System running duration",    "System"},
