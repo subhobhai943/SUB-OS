@@ -114,10 +114,19 @@ $(BUILD_DIR)/boot:
 	mkdir -p $(BUILD_DIR)/boot
 
 run: $(IMAGE)
-	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) -nic model=e1000 -serial stdio
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 -serial stdio
+
+run-server: $(IMAGE)
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 -serial stdio -display none
 
 debug: $(IMAGE)
-	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) -nic model=e1000 -serial stdio -s -S
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 -serial stdio -s -S
 
 info:
 	@echo "C Sources:   $(words $(ALL_C_SRCS)) files"
