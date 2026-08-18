@@ -58,6 +58,7 @@
 #include <net/tcp.h>
 #include <net/dhcp.h>
 #include <net/dns.h>
+#include <kernel/rust.h>
 #include <net/filter.h>
 #include <net/http.h>
 #include <net/ssh.h>
@@ -140,8 +141,9 @@ static void subos_modular_core_boot(void) {
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 #endif
 
-    // Crypto, Certificates, LSM Security, Authentication & Namespaces
-    printk(KERN_INFO "[8/14] Initializing X.509 Keyring, Shadow Auth & Namespaces... ");
+    // Crypto, Certificates, LSM Security, Authentication, Namespaces & Rust Subsystem
+    printk(KERN_INFO "[8/14] Initializing Rust Core, X.509 Keyring, Shadow Auth & Namespaces... ");
+    rust_kernel_init();
     prng_seed(0, 0);
     certs_init();
     security_init();

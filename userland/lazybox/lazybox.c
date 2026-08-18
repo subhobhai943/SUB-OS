@@ -28,6 +28,7 @@
 #include <ipc/ipc.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
+#include <kernel/rust.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -719,6 +720,48 @@ static int applet_sleep(int argc, char** argv) {
 static int applet_clear(int argc, char** argv) {
     (void)argc; (void)argv;
     tty_clear();
+    return 0;
+}
+
+static int applet_rustinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_GREEN "   SUB-OS Rust Core Subsystem (Memory-Safe Kernel Engine)\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_YELLOW "  Compiler Profile : " ANSI_RESET "Rustc 1.75+ (Freestanding bare-metal no_std)\n");
+    printk(ANSI_YELLOW "  Active Drivers   : " ANSI_RESET "ChaCha20 CSPRNG, HWMON Thermal Governor\n");
+    printk(ANSI_YELLOW "  Memory Safety    : " ANSI_RESET "Guaranteed (Borrow Checker + Ownership semantics)\n");
+    printk(ANSI_YELLOW "  Status           : " ANSI_RESET "%s\n\n", rust_kernel_status());
+    return 0;
+}
+
+static int applet_chacha20(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: chacha20 <text_to_encrypt/decrypt>\n");
+        return 1;
+    }
+    const char* input = argv[1];
+    size_t len = strlen(input);
+    char buffer[256];
+    if (len > sizeof(buffer) - 1) len = sizeof(buffer) - 1;
+    memcpy(buffer, input, len);
+    buffer[len] = '\0';
+
+    uint8_t key[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+    };
+    uint8_t nonce[12] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00};
+
+    rust_chacha20_crypt(key, nonce, 1, (uint8_t*)buffer, len);
+
+    printk("ChaCha20 Cipher Output (Hex, %llu bytes):\n  " ANSI_BRIGHT_GREEN, (uint64_t)len);
+    for (size_t i = 0; i < len; i++) {
+        printk("%02x ", (uint8_t)buffer[i]);
+    }
+    printk(ANSI_RESET "\n");
     return 0;
 }
 
@@ -1569,6 +1612,8 @@ static const lazybox_applet_t applets[] = {
     {"reboot",        applet_reboot,        "reboot",                    "Reboot the computer",        "System"},
     {"poweroff",      applet_poweroff,      "poweroff",                  "Power off the computer",     "System"},
     {"clear",         applet_clear,         "clear",                     "Clear console screen",       "Terminal"},
+    {"rustinfo",      applet_rustinfo,      "rustinfo",                  "Rust subsystem & safety telemetry", "System"},
+    {"chacha20",      applet_chacha20,      "chacha20 <text>",           "Rust ChaCha20 stream cipher", "Crypto"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

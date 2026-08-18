@@ -48,6 +48,10 @@ int memcmp(const void* ptr1, const void* ptr2, size_t num) {
     return 0;
 }
 
+int bcmp(const void* ptr1, const void* ptr2, size_t num) {
+    return memcmp(ptr1, ptr2, num);
+}
+
 size_t strlen(const char* str) {
     size_t len = 0;
     while (str && str[len]) {

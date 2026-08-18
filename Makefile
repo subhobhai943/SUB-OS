@@ -283,15 +283,19 @@ endif
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))
 
-ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
-
-# Object Files Mapping
-C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
-
+# Rust Layer Configuration
 ifeq ($(ARCH), x86_64)
+    RUSTC ?= rustc
+    RUST_SRCS = $(shell find rust/src -name '*.rs' 2>/dev/null)
+    RUST_LIB = $(BUILD_DIR)/rust/librust_kernel.a
+    ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
+    C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
     ASM_OBJS   = $(patsubst %.asm, $(BUILD_DIR)/%.o, $(ARCH_ASM_SRCS))
-    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS))
+    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS)) $(RUST_LIB)
 else
+    CONFIG_SRCS-y += rust/rust_fallback.c
+    ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
+    C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
     S_OBJS     = $(patsubst %.S, $(BUILD_DIR)/%.o, $(ARCH_S_SRCS))
     OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(S_OBJS) $(C_OBJS))
 endif
@@ -335,6 +339,12 @@ $(BUILD_DIR)/%.o: %.asm
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# Rust Source Compilation
+$(RUST_LIB): rust/src/lib.rs $(RUST_SRCS)
+	@mkdir -p $(dir $@)
+	$(RUSTC) --crate-type staticlib -C panic=abort -C relocation-model=static -C opt-level=2 -C no-redzone=y -o $@ rust/src/lib.rs
+
 
 # Header Generation Fallback
 include/config/autoconf.h:
