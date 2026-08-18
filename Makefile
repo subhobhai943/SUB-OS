@@ -53,7 +53,7 @@ ifeq ($(ARCH), x86_64)
     TARGET        = $(IMAGE)
     QEMU_CMD      = qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
                     -netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
-                    -device e1000,netdev=net0 -serial stdio
+                    -device e1000,netdev=net0 -serial stdio -display none
 
 else ifneq ($(filter $(ARCH), aarch64 arm64),)
     CROSS_COMPILE ?= aarch64-linux-gnu-
@@ -374,6 +374,17 @@ $(IMAGE): $(BUILD_DIR)/boot/boot.bin $(BUILD_DIR)/boot/stage2.bin $(BUILD_DIR)/k
 # -----------------------------------------------------------------------------
 run qemu: $(TARGET)
 	$(QEMU_CMD)
+
+run-gui: $(TARGET)
+ifeq ($(ARCH), x86_64)
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 -serial stdio
+else ifneq ($(filter $(ARCH), aarch64 arm64),)
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+else
+	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+endif
 
 run-server: $(IMAGE)
 	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \

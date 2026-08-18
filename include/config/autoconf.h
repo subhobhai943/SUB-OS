@@ -2,8 +2,8 @@
 #ifndef _AUTOCONF_H
 #define _AUTOCONF_H
 
-#define CONFIG_ARCH "armv8i"
-#define CONFIG_ARCH_ARMV8I 1
+#define CONFIG_ARCH "x86_64"
+#define CONFIG_ARCH_X86_64 1
 #define CONFIG_BPF_VM 1
 #define CONFIG_DRV_AHCI 1
 #define CONFIG_DRV_ATA 1

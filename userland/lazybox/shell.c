@@ -287,6 +287,8 @@ static void shell_process(const char* cmd) {
             int idx = (history_head - history_count + i + HISTORY_SIZE) % HISTORY_SIZE;
             printk("  %2d: %s\n", i + 1, history[idx]);
         }
+    } else if (strcmp(argv[0], "clear") == 0 || strcmp(argv[0], "cls") == 0) {
+        tty_clear();
     } else if (strcmp(argv[0], "reboot") == 0) {
         printk(ANSI_YELLOW "Rebooting...\n" ANSI_RESET);
         pit_sleep(200);
@@ -392,7 +394,7 @@ void shell_run(void) {
                 printk("%s%s", prompt, cmd_buffer);
                 continue;
             }
-            if (c == '\b') {
+            if (c == '\b' || (unsigned char)c == 0x7F || c == 0x08) {
                 if (cursor_pos > 0) {
                     for (size_t i = cursor_pos - 1; i < cmd_len - 1; i++) cmd_buffer[i] = cmd_buffer[i + 1];
                     cmd_len--;
@@ -400,6 +402,7 @@ void shell_run(void) {
                     cmd_buffer[cmd_len] = '\0';
                     redraw_line(prompt, cmd_buffer, cmd_len, cursor_pos);
                 }
+                continue;
             } else if (c == '\t') {
                 if (cmd_len > 0) {
                     int matches = 0;

@@ -287,7 +287,8 @@ int nano_main(int argc, char** argv) {
                 }
                 break;
 
-            case '\b': // Backspace
+            case '\b': // Backspace (0x08)
+            case 0x7F: // DEL
                 if (nano_cursor_col > 0) {
                     memmove(&nano_lines[nano_cursor_row][nano_cursor_col - 1],
                             &nano_lines[nano_cursor_row][nano_cursor_col],

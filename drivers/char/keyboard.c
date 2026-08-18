@@ -2,6 +2,14 @@
 #include <drivers/tty.h>
 #include <arch/arch.h>
 
+#if defined(__x86_64__)
+#include <drivers/serial.h>
+#elif defined(__aarch64__)
+#include <arch/aarch64/uart.h>
+#elif defined(__arm__) || defined(__armv8i__)
+#include <arch/armv8i/uart.h>
+#endif
+
 #define KEYBOARD_DATA_PORT    0x60
 #define KEYBOARD_STATUS_PORT  0x64
 #define KEYBOARD_BUFFER_SIZE  128
@@ -123,14 +131,10 @@ void keyboard_init(void) {
 #endif
 }
 
-#if defined(__aarch64__)
-#include <arch/aarch64/uart.h>
-#elif defined(__arm__) || defined(__armv8i__)
-#include <arch/armv8i/uart.h>
-#endif
-
 bool keyboard_has_key(void) {
-#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
+#if defined(__x86_64__)
+    if (serial_received()) return true;
+#elif defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
     if (uart_pl011_has_data()) return true;
 #endif
     return buffer_head != buffer_tail;
@@ -140,13 +144,75 @@ uint16_t keyboard_get_key(void) {
     while (!keyboard_has_key()) {
         arch_halt();
     }
-#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
+
+#if defined(__x86_64__)
+    if (serial_received()) {
+        char c = serial_read_char();
+        if ((uint8_t)c == 0x1B) { // Escape sequence
+            for (volatile int t = 0; t < 2000; t++) {
+                if (serial_received()) {
+                    char c2 = serial_read_char();
+                    if (c2 == '[') {
+                        for (volatile int t2 = 0; t2 < 2000; t2++) {
+                            if (serial_received()) {
+                                char c3 = serial_read_char();
+                                if (c3 == 'A') return KEY_UP;
+                                if (c3 == 'B') return KEY_DOWN;
+                                if (c3 == 'C') return KEY_RIGHT;
+                                if (c3 == 'D') return KEY_LEFT;
+                                if (c3 == 'H') return KEY_HOME;
+                                if (c3 == 'F') return KEY_END;
+                                if (c3 == '3') {
+                                    if (serial_received() && serial_read_char() == '~') return KEY_DELETE;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            return 0x1B;
+        }
+        if (c == '\r') c = '\n';
+        if ((uint8_t)c == 0x7F || c == 0x08) c = '\b';
+        return (uint16_t)(uint8_t)c;
+    }
+#elif defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
     if (uart_pl011_has_data()) {
         char c = uart_pl011_getc();
+        if ((uint8_t)c == 0x1B) { // Escape sequence
+            for (volatile int t = 0; t < 2000; t++) {
+                if (uart_pl011_has_data()) {
+                    char c2 = uart_pl011_getc();
+                    if (c2 == '[') {
+                        for (volatile int t2 = 0; t2 < 2000; t2++) {
+                            if (uart_pl011_has_data()) {
+                                char c3 = uart_pl011_getc();
+                                if (c3 == 'A') return KEY_UP;
+                                if (c3 == 'B') return KEY_DOWN;
+                                if (c3 == 'C') return KEY_RIGHT;
+                                if (c3 == 'D') return KEY_LEFT;
+                                if (c3 == 'H') return KEY_HOME;
+                                if (c3 == 'F') return KEY_END;
+                                if (c3 == '3') {
+                                    if (uart_pl011_has_data() && uart_pl011_getc() == '~') return KEY_DELETE;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            return 0x1B;
+        }
         if (c == '\r') c = '\n';
+        if ((uint8_t)c == 0x7F || c == 0x08) c = '\b';
         return (uint16_t)(uint8_t)c;
     }
 #endif
+
     uint16_t key = key_buffer[buffer_tail];
     buffer_tail = (buffer_tail + 1) % KEYBOARD_BUFFER_SIZE;
     return key;

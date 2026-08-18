@@ -1,6 +1,7 @@
 #include <drivers/tty.h>
 #include <drivers/vga.h>
 #include <lib/string.h>
+#include <kernel/printk.h>
 
 typedef struct {
     uint16_t buffer[TTY_HEIGHT][TTY_WIDTH];
@@ -42,7 +43,7 @@ static void tty_scroll(tty_t* t) {
         }
     }
     for (int x = 0; x < TTY_WIDTH; x++) {
-        t->buffer[TTY_HEIGHT - 1][x] = vga_entry(' ', t->current_color);
+        t->buffer[TTY_HEIGHT - 1][x] = vga_entry(' ', t->current_color ? t->current_color : 0x07);
     }
     t->cursor_row = TTY_HEIGHT - 1;
 }
@@ -51,12 +52,15 @@ void tty_clear(void) {
     tty_t* t = &ttys[current_tty];
     for (int y = 0; y < TTY_HEIGHT; y++) {
         for (int x = 0; x < TTY_WIDTH; x++) {
-            t->buffer[y][x] = vga_entry(' ', t->current_color);
+            t->buffer[y][x] = vga_entry(' ', t->current_color ? t->current_color : 0x07);
         }
     }
     t->cursor_row = 0;
     t->cursor_col = 0;
     tty_render_current();
+
+    // Send standard ANSI terminal clear screen sequence to serial / UART
+    printk("\033[2J\033[H");
 }
 
 void tty_set_cursor(int row, int col) {
@@ -74,7 +78,7 @@ void tty_write(const char* data, size_t size) {
     for (size_t i = 0; i < size; i++) {
         char c = data[i];
 
-        // Basic ANSI escape sequence parser (e.g. \033[31m)
+        // ANSI escape sequence parser
         if (c == '\033' && i + 1 < size && data[i + 1] == '[') {
             i += 2;
             int code = 0;
@@ -91,7 +95,7 @@ void tty_write(const char* data, size_t size) {
                 else if (code == 35) t->current_color = 0x05; // Magenta
                 else if (code == 36) t->current_color = 0x03; // Cyan
                 else if (code == 37) t->current_color = 0x07; // White
-                else if (code == 90) t->current_color = 0x08; // Bright Black (Dark Grey)
+                else if (code == 90) t->current_color = 0x08; // Bright Black
                 else if (code == 91) t->current_color = 0x0C; // Bright Red
                 else if (code == 92) t->current_color = 0x0A; // Bright Green
                 else if (code == 93) t->current_color = 0x0E; // Bright Yellow
@@ -102,8 +106,21 @@ void tty_write(const char* data, size_t size) {
             } else if (i < size && data[i] == 'K') {
                 // Clear from cursor to end of line
                 for (int x = t->cursor_col; x < TTY_WIDTH; x++) {
-                    t->buffer[t->cursor_row][x] = vga_entry(' ', t->current_color);
+                    t->buffer[t->cursor_row][x] = vga_entry(' ', t->current_color ? t->current_color : 0x07);
                 }
+            } else if (i < size && data[i] == 'J') {
+                // Clear entire screen buffer
+                for (int y = 0; y < TTY_HEIGHT; y++) {
+                    for (int x = 0; x < TTY_WIDTH; x++) {
+                        t->buffer[y][x] = vga_entry(' ', t->current_color ? t->current_color : 0x07);
+                    }
+                }
+                t->cursor_row = 0;
+                t->cursor_col = 0;
+            } else if (i < size && data[i] == 'H') {
+                // Cursor Home
+                t->cursor_row = 0;
+                t->cursor_col = 0;
             } else if (i < size && data[i] == 'D') {
                 // Move cursor left
                 if (t->cursor_col > 0) t->cursor_col--;
@@ -132,10 +149,10 @@ void tty_write(const char* data, size_t size) {
         } else if (c == '\b') {
             if (t->cursor_col > 0) {
                 t->cursor_col--;
-                t->buffer[t->cursor_row][t->cursor_col] = vga_entry(' ', t->current_color);
+                t->buffer[t->cursor_row][t->cursor_col] = vga_entry(' ', t->current_color ? t->current_color : 0x07);
             }
         } else {
-            t->buffer[t->cursor_row][t->cursor_col] = vga_entry(c, t->current_color);
+            t->buffer[t->cursor_row][t->cursor_col] = vga_entry(c, t->current_color ? t->current_color : 0x07);
             if (++t->cursor_col >= TTY_WIDTH) {
                 t->cursor_col = 0;
                 if (++t->cursor_row >= TTY_HEIGHT) {

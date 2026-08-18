@@ -195,9 +195,6 @@ static void subos_modular_core_boot(void) {
     printk(ANSI_BRIGHT_GREEN "ACTIVE\n" ANSI_RESET);
 
     // Launch Shell
-#if defined(__x86_64__)
-    tty_clear();
-#endif
     shell_run();
 
     while (1) {
