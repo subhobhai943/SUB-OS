@@ -1,7 +1,7 @@
 # =============================================================================
 # SUB-OS Master Multi-Architecture Linux-Style Makefile
 # Supports: x86_64, aarch64, armv8i
-# Features: Linux Kconfig TUI (make menuconfig), multi-arch cross-compilation
+# Features: Linux Kconfig TUI (make configure / make menuconfig), dynamic Kbuild
 # =============================================================================
 
 -include .config
@@ -38,7 +38,7 @@ ifeq ($(ARCH), x86_64)
               -Wextra \
               -Wno-unused-function \
               -Wno-unused-parameter \
-              -O2 \
+              $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2) \
               -Iinclude \
               -D__x86_64__
 
@@ -70,7 +70,7 @@ else ifneq ($(filter $(ARCH), aarch64 arm64),)
               -Wno-unused-function \
               -Wno-unused-parameter \
               -mno-outline-atomics \
-              -O2 \
+              $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2) \
               -Iinclude \
               -D__aarch64__ \
               -march=armv8-a
@@ -97,7 +97,7 @@ else ifneq ($(filter $(ARCH), armv8i arm32 arm),)
               -Wextra \
               -Wno-unused-function \
               -Wno-unused-parameter \
-              -O2 \
+              $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2) \
               -Iinclude \
               -D__arm__ \
               -D__armv8i__ \
@@ -119,30 +119,171 @@ else
 endif
 
 # -----------------------------------------------------------------------------
-# Common Kernel Subsystems
+# Linux-Style Configurable Kernel Subsystems (Kbuild-Style)
 # -----------------------------------------------------------------------------
-KERNEL_C_SRCS   = $(shell find kernel -name '*.c' 2>/dev/null)
-MM_C_SRCS       = $(shell find mm -name '*.c' 2>/dev/null)
-DRIVERS_C_SRCS  = $(shell find drivers -name '*.c' 2>/dev/null)
-FS_C_SRCS       = $(shell find fs -name '*.c' 2>/dev/null)
-NET_C_SRCS      = $(shell find net -name '*.c' 2>/dev/null)
-CRYPTO_C_SRCS   = $(shell find crypto -name '*.c' 2>/dev/null)
-LIB_C_SRCS      = $(shell find lib -name '*.c' 2>/dev/null)
-USERLAND_C_SRCS = $(shell find userland -name '*.c' 2>/dev/null)
-CERTS_C_SRCS    = $(shell find certs -name '*.c' 2>/dev/null)
-INIT_C_SRCS     = $(shell find init -name '*.c' 2>/dev/null)
-IO_URING_C_SRCS = $(shell find io_uring -name '*.c' 2>/dev/null)
-SECURITY_C_SRCS = $(shell find security -name '*.c' 2>/dev/null)
-USR_C_SRCS      = $(shell find usr -name '*.c' 2>/dev/null)
-VIRT_C_SRCS     = $(shell find virt -name '*.c' 2>/dev/null)
-BLOCK_C_SRCS    = $(shell find block -name '*.c' 2>/dev/null)
-IPC_C_SRCS      = $(shell find ipc -name '*.c' 2>/dev/null)
-SOUND_C_SRCS    = $(shell find sound -name '*.c' 2>/dev/null)
+CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/printk.c \
+            kernel/panic.c kernel/trace.c kernel/sched.c kernel/cron.c kernel/syscall.c \
+            kernel/syslog.c kernel/module.c kernel/kobject.c kernel/metrics.c kernel/namespace.c \
+            kernel/signal.c kernel/workqueue.c \
+            lib/string.c lib/vsprintf.c lib/bitmap.c \
+            init/cmdline.c init/service.c usr/initramfs.c block/block.c block/elevator.c \
+            ipc/sem.c ipc/shm.c ipc/pipe.c ipc/ipc.c ipc/msg.c \
+            crypto/sha256.c crypto/md5.c crypto/crc32.c crypto/prng.c
 
-ALL_C_SRCS = $(ARCH_C_SRCS) $(KERNEL_C_SRCS) $(MM_C_SRCS) $(DRIVERS_C_SRCS) \
-             $(FS_C_SRCS) $(NET_C_SRCS) $(CRYPTO_C_SRCS) $(LIB_C_SRCS) $(USERLAND_C_SRCS) \
-             $(CERTS_C_SRCS) $(INIT_C_SRCS) $(IO_URING_C_SRCS) $(SECURITY_C_SRCS) \
-             $(USR_C_SRCS) $(VIRT_C_SRCS) $(BLOCK_C_SRCS) $(IPC_C_SRCS) $(SOUND_C_SRCS)
+# If no .config exists, default all core options to y
+ifeq ($(wildcard .config),)
+    CONFIG_MM_PMM = y
+    CONFIG_MM_SLAB = y
+    CONFIG_MM_VMA = y
+    CONFIG_FS_VFS = y
+    CONFIG_FS_FAT32 = y
+    CONFIG_FS_EXT2 = y
+    CONFIG_FS_SYSFS = y
+    CONFIG_DRV_RAMDISK = y
+    CONFIG_DRV_AHCI = y
+    CONFIG_DRV_NVME = y
+    CONFIG_DRV_ATA = y
+    CONFIG_DRV_VIRTIO_BLK = y
+    CONFIG_NET_STACK = y
+    CONFIG_NET_FILTER = y
+    CONFIG_NET_HTTPD = y
+    CONFIG_NET_SSHD = y
+    CONFIG_DRV_E1000 = y
+    CONFIG_DRV_RTL8139 = y
+    CONFIG_DRV_VIRTIO_NET = y
+    CONFIG_DRV_PTY = y
+    CONFIG_DRV_VIRTIO_RNG = y
+    CONFIG_DRV_CANVAS_2D = y
+    CONFIG_DRV_BOCHS_VBE = y
+    CONFIG_DRV_SOUND_HDA = y
+    CONFIG_DRV_SOUND_AC97 = y
+    CONFIG_DRV_USB_XHCI = y
+    CONFIG_DRV_HWMON = y
+    CONFIG_SECURITY_LSM = y
+    CONFIG_SECURITY_KEYRING = y
+    CONFIG_BPF_VM = y
+    CONFIG_IO_URING = y
+    CONFIG_USERLAND_LAZYBOX = y
+endif
+
+CONFIG_SRCS-y := $(CORE_SRCS)
+
+ifeq ($(CONFIG_MM_PMM), y)
+    CONFIG_SRCS-y += mm/pmm.c mm/kmalloc.c
+endif
+ifeq ($(CONFIG_MM_SLAB), y)
+    CONFIG_SRCS-y += mm/slab.c
+endif
+ifeq ($(CONFIG_MM_VMA), y)
+    CONFIG_SRCS-y += mm/vma.c
+endif
+
+ifeq ($(CONFIG_BPF_VM), y)
+    CONFIG_SRCS-y += kernel/bpf.c
+endif
+ifeq ($(CONFIG_IO_URING), y)
+    CONFIG_SRCS-y += io_uring/io_uring.c
+endif
+ifeq ($(CONFIG_SECURITY_LSM), y)
+    CONFIG_SRCS-y += security/lsm.c security/auth.c
+endif
+ifeq ($(CONFIG_SECURITY_KEYRING), y)
+    CONFIG_SRCS-y += certs/x509.c
+endif
+
+# Filesystems
+ifeq ($(CONFIG_FS_VFS), y)
+    CONFIG_SRCS-y += fs/vfs.c fs/ramfs.c fs/devfs.c fs/procfs.c
+endif
+ifeq ($(CONFIG_FS_FAT32), y)
+    CONFIG_SRCS-y += fs/fat32.c
+endif
+ifeq ($(CONFIG_FS_EXT2), y)
+    CONFIG_SRCS-y += fs/ext2.c
+endif
+ifeq ($(CONFIG_FS_SYSFS), y)
+    CONFIG_SRCS-y += fs/sysfs.c
+endif
+
+# Storage Drivers
+ifeq ($(CONFIG_DRV_RAMDISK), y)
+    CONFIG_SRCS-y += drivers/block/ramdisk.c
+endif
+ifeq ($(CONFIG_DRV_AHCI), y)
+    CONFIG_SRCS-y += drivers/block/ahci.c
+endif
+ifeq ($(CONFIG_DRV_NVME), y)
+    CONFIG_SRCS-y += drivers/block/nvme.c
+endif
+ifeq ($(CONFIG_DRV_ATA), y)
+    CONFIG_SRCS-y += drivers/block/ata.c
+endif
+ifeq ($(CONFIG_DRV_VIRTIO_BLK), y)
+    CONFIG_SRCS-y += drivers/virtio/virtio_blk.c virt/virtio.c virt/hypervisor.c
+endif
+
+# Network Subsystem
+ifeq ($(CONFIG_NET_STACK), y)
+    CONFIG_SRCS-y += net/core/net.c net/core/socket.c net/ipv4/tcp.c net/ipv4/udp.c net/ipv4/dhcp.c net/ipv4/dns.c
+endif
+ifeq ($(CONFIG_NET_FILTER), y)
+    CONFIG_SRCS-y += net/filter.c
+endif
+ifeq ($(CONFIG_NET_HTTPD), y)
+    CONFIG_SRCS-y += net/httpd.c
+endif
+ifeq ($(CONFIG_NET_SSHD), y)
+    CONFIG_SRCS-y += net/ssh.c
+endif
+ifeq ($(CONFIG_DRV_E1000), y)
+    CONFIG_SRCS-y += drivers/net/e1000.c drivers/pci/pci.c
+endif
+ifeq ($(CONFIG_DRV_RTL8139), y)
+    CONFIG_SRCS-y += drivers/net/rtl8139.c drivers/pci/pci.c
+endif
+ifeq ($(CONFIG_DRV_VIRTIO_NET), y)
+    CONFIG_SRCS-y += drivers/virtio/virtio_net.c virt/virtio.c
+endif
+
+# Character, Audio, Video Drivers
+ifeq ($(CONFIG_DRV_PTY), y)
+    CONFIG_SRCS-y += drivers/char/pty.c
+endif
+ifeq ($(CONFIG_DRV_VIRTIO_RNG), y)
+    CONFIG_SRCS-y += drivers/char/virtio_rng.c
+endif
+ifeq ($(CONFIG_DRV_USB_XHCI), y)
+    CONFIG_SRCS-y += drivers/usb/xhci.c drivers/usb/usb.c
+endif
+ifeq ($(CONFIG_DRV_HWMON), y)
+    CONFIG_SRCS-y += drivers/hwmon/coretemp.c
+endif
+ifeq ($(CONFIG_DRV_CANVAS_2D), y)
+    CONFIG_SRCS-y += drivers/video/canvas.c
+endif
+ifeq ($(CONFIG_DRV_BOCHS_VBE), y)
+    CONFIG_SRCS-y += drivers/video/bochs.c drivers/video/fb.c
+endif
+ifeq ($(CONFIG_DRV_SOUND_HDA), y)
+    CONFIG_SRCS-y += sound/hda.c sound/sound.c sound/pcm.c sound/tts.c sound/melody.c
+endif
+ifeq ($(CONFIG_DRV_SOUND_AC97), y)
+    CONFIG_SRCS-y += sound/ac97.c sound/sound.c sound/pcm.c
+endif
+
+# Common Input/Display
+CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.c drivers/char/vga.c \
+                 drivers/input/mouse.c drivers/power/acpi.c drivers/rtc/rtc.c drivers/sound/speaker.c
+
+# Userland
+ifeq ($(CONFIG_USERLAND_LAZYBOX), y)
+    CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c
+endif
+
+# Deduplicate
+CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))
+
+ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
 
 # Object Files Mapping
 C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
@@ -155,14 +296,14 @@ else
     OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(S_OBJS) $(C_OBJS))
 endif
 
-.PHONY: all clean run debug info menuconfig config defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig qemu
+.PHONY: all clean run debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig qemu help
 
 all: $(TARGET)
 
 # -----------------------------------------------------------------------------
-# Configuration Targets (Linux Kconfig TUI)
+# Configuration Targets (Linux Kconfig TUI Configurator)
 # -----------------------------------------------------------------------------
-menuconfig config:
+configure menuconfig config tui nconfig:
 	@python3 scripts/kconfig/menuconfig.py
 
 defconfig:
@@ -181,7 +322,7 @@ armv8_defconfig armv8i_defconfig arm32_defconfig:
 # Compilation Rules
 # -----------------------------------------------------------------------------
 # C Source Files
-$(BUILD_DIR)/%.o: %.c
+$(BUILD_DIR)/%.o: %.c include/config/autoconf.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -195,8 +336,13 @@ $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Header Generation Fallback
+include/config/autoconf.h:
+	@mkdir -p include/config
+	@if [ ! -f .config ]; then python3 scripts/kconfig/menuconfig.py --defconfig $(ARCH); fi
+
 # -----------------------------------------------------------------------------
-# x86_64 Bootloader & Image Rules
+# Link & Image Assembly
 # -----------------------------------------------------------------------------
 $(BUILD_DIR)/boot/boot.bin: $(BOOT_DIR)/boot.asm | $(BUILD_DIR)/boot
 	$(ASM) $(ASMFLAGS_BOOT) $< -o $@
@@ -248,8 +394,22 @@ endif
 info:
 	@echo "Target Architecture: $(ARCH)"
 	@echo "Cross Compiler:      $(CROSS_COMPILE)"
-	@echo "C Sources:           $(words $(ALL_C_SRCS)) files"
+	@echo "Compiled Sources:    $(words $(ALL_C_SRCS)) C files"
 	@echo "Target Binary:       $(TARGET)"
+
+help:
+	@echo "SUB-OS Kernel Build System (Linux-Style Kconfig)"
+	@echo "=================================================="
+	@echo "  make configure        - Launch interactive Linux-style TUI Configurator"
+	@echo "  make menuconfig       - Alias for make configure"
+	@echo "  make defconfig        - Reset to default configuration for active ARCH"
+	@echo "  make x86_64_defconfig - Load x86_64 default configuration"
+	@echo "  make aarch64_defconfig- Load AArch64 default configuration"
+	@echo "  make armv8i_defconfig - Load ARMv8i (32-bit ARM) default configuration"
+	@echo "  make all [ARCH=...]   - Compile kernel image for selected architecture"
+	@echo "  make qemu [ARCH=...]  - Boot the compiled kernel in QEMU emulator"
+	@echo "  make clean            - Remove all compiled objects and disk images"
+	@echo "  make info             - Display build configuration and source metrics"
 
 clean:
 	rm -rf $(BUILD_DIR) $(IMAGE)

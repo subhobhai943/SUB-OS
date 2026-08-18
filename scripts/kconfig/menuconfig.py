@@ -83,7 +83,17 @@ MENU_STRUCTURE = [
         "items": [
             {"name": "CONFIG_ARCH_X86_64", "label": "x86_64 (64-Bit AMD64/Intel x86-64)", "type": "radio", "group": "arch", "val": "x86_64"},
             {"name": "CONFIG_ARCH_AARCH64", "label": "aarch64 (ARMv8-A 64-Bit Cortex/Neoverse)", "type": "radio", "group": "arch", "val": "aarch64"},
-            {"name": "CONFIG_ARCH_ARMV8I", "label": "armv8i (ARMv8 Instruction Set Profile)", "type": "radio", "group": "arch", "val": "armv8i"},
+            {"name": "CONFIG_ARCH_ARMV8I", "label": "armv8i (32-Bit ARM/AArch32 Profile)", "type": "radio", "group": "arch", "val": "armv8i"},
+        ]
+    },
+    {
+        "title": "Compiler Optimizations & Code Generation",
+        "type": "submenu",
+        "items": [
+            {"name": "CONFIG_OPT_O2", "label": "-O2 (Recommended: High Performance Optimization)", "type": "radio", "group": "opt", "val": "-O2"},
+            {"name": "CONFIG_OPT_O3", "label": "-O3 (Aggressive Vectorization & Loop Unrolling)", "type": "radio", "group": "opt", "val": "-O3"},
+            {"name": "CONFIG_OPT_OS", "label": "-Os (Optimize for Smallest Binary Footprint)", "type": "radio", "group": "opt", "val": "-Os"},
+            {"name": "CONFIG_OPT_O0", "label": "-O0 (Disable Optimizations for GDB Debugging)", "type": "radio", "group": "opt", "val": "-O0"},
         ]
     },
     {
@@ -97,15 +107,27 @@ MENU_STRUCTURE = [
         ]
     },
     {
+        "title": "Memory Management & Object Allocators",
+        "type": "submenu",
+        "items": [
+            {"name": "CONFIG_MM_PMM", "label": "Physical Page Frame Allocator (PMM)", "type": "bool"},
+            {"name": "CONFIG_MM_SLAB", "label": "High-Performance SLUB/SLAB Object Cache", "type": "bool"},
+            {"name": "CONFIG_MM_VMA", "label": "Virtual Memory Areas (VMA) & mmap Subsystem", "type": "bool"},
+        ]
+    },
+    {
         "title": "Virtual File Systems & Storage Drivers",
         "type": "submenu",
         "items": [
+            {"name": "CONFIG_FS_VFS", "label": "Virtual File System (VFS) Core Subsystem", "type": "bool"},
             {"name": "CONFIG_FS_FAT32", "label": "FAT32 / VFAT File System Driver", "type": "bool"},
             {"name": "CONFIG_FS_EXT2", "label": "Second Extended (EXT2) Linux File System", "type": "bool"},
             {"name": "CONFIG_FS_SYSFS", "label": "Sysfs KObject Virtual Hierarchy (/sys)", "type": "bool"},
             {"name": "CONFIG_DRV_NVME", "label": "NVM Express (NVMe PCIe SSD) Driver", "type": "bool"},
             {"name": "CONFIG_DRV_AHCI", "label": "AHCI SATA 6Gb/s SSD/HDD Controller Driver", "type": "bool"},
+            {"name": "CONFIG_DRV_ATA", "label": "Legacy IDE/ATA Parallel Storage Driver", "type": "bool"},
             {"name": "CONFIG_DRV_VIRTIO_BLK", "label": "VirtIO Paravirtualized Block Storage (/dev/vda)", "type": "bool"},
+            {"name": "CONFIG_DRV_RAMDISK", "label": "In-Memory Virtual Ramdisk Storage (/dev/ram0)", "type": "bool"},
         ]
     },
     {
@@ -117,7 +139,8 @@ MENU_STRUCTURE = [
             {"name": "CONFIG_DRV_RTL8139", "label": "Realtek RTL8139 Fast Ethernet NIC Driver", "type": "bool"},
             {"name": "CONFIG_DRV_VIRTIO_NET", "label": "VirtIO 10-Gigabit Paravirtualized NIC", "type": "bool"},
             {"name": "CONFIG_NET_FILTER", "label": "NetFilter Stateful Packet Firewall (iptables)", "type": "bool"},
-            {"name": "CONFIG_NET_SSHD", "label": "In-Kernel Secure Shell (SSH) Daemon", "type": "bool"},
+            {"name": "CONFIG_NET_HTTPD", "label": "In-Kernel Embedded HTTP REST Web Server", "type": "bool"},
+            {"name": "CONFIG_NET_SSHD", "label": "In-Kernel Secure Shell (SSH 2.0) Daemon", "type": "bool"},
         ]
     },
     {
@@ -135,7 +158,7 @@ MENU_STRUCTURE = [
         ]
     },
     {
-        "title": "Security, LSM & Keyrings",
+        "title": "Security, LSM & Cryptographic Keyrings",
         "type": "submenu",
         "items": [
             {"name": "CONFIG_SECURITY_LSM", "label": "Linux Security Module (LSM) Mandatory Access Control", "type": "bool"},
@@ -143,7 +166,7 @@ MENU_STRUCTURE = [
         ]
     },
     {
-        "title": "Userland Core & LazyBox",
+        "title": "Userland Core & LazyBox Utility Suite",
         "type": "submenu",
         "items": [
             {"name": "CONFIG_USERLAND_LAZYBOX", "label": "LazyBox Multi-Call Userland Utility Suite (70+ Tools)", "type": "bool"},
@@ -219,120 +242,119 @@ def run_tui(stdscr):
         stdscr.clear()
         max_y, max_x = stdscr.getmaxyx()
 
-        # Top Banner
-        header = f" SUB-OS v{cfg.get('CONFIG_SUBOS_VERSION', '0.2.0-lts')} ({cfg.get('CONFIG_ARCH', 'x86_64')}) Linux-Style Kernel Configuration "
+        # Top Header Bar
         stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(0, 0, header.center(max_x - 1)[:max_x - 1])
+        title_str = " SUB-OS Kernel v0.2.0 Configuration (Linux-Style Kconfig TUI) "
+        stdscr.addstr(0, 0, title_str.ljust(max_x)[:max_x])
         stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
-        # Subtitle
-        stdscr.attron(curses.color_pair(3) | curses.A_BOLD)
-        title_text = "Main Menu" if not menu_stack else menu_stack[-1]["title"]
-        stdscr.addstr(2, 4, f"-> {title_text}")
-        stdscr.attroff(curses.color_pair(3) | curses.A_BOLD)
+        # Active Architecture Indicator
+        cur_arch = cfg.get("CONFIG_ARCH", "x86_64")
+        cur_opt = cfg.get("CONFIG_OPTIMIZATION", "-O2")
+        info_str = f" Target Architecture: [{cur_arch}]  |  Optimization: [{cur_opt}] "
+        stdscr.attron(curses.color_pair(3))
+        stdscr.addstr(1, 2, info_str[:max_x-4])
+        stdscr.attroff(curses.color_pair(3))
 
-        # Instructions
+        # Instructions / Help
+        nav_help = "Arrow Keys navigate | <Enter> Select/Toggle | <Space> Toggle | [S]ave | [Q]/<Esc> Back"
         stdscr.attron(curses.color_pair(5))
-        stdscr.addstr(3, 4, "Use [UP/DOWN] arrows, [SPACE] to toggle [*], [ENTER] for submenu, [S] to Save, [Q] to Exit")
+        stdscr.addstr(2, 2, nav_help[:max_x-4])
         stdscr.attroff(curses.color_pair(5))
 
-        # Items list
-        items = current_menu if not menu_stack else menu_stack[-1]["items"]
-        cur_idx = cursor_stack[-1]
-        if cur_idx >= len(items):
-            cur_idx = len(items) - 1
-        if cur_idx < 0:
-            cur_idx = 0
-        cursor_stack[-1] = cur_idx
+        # Divider line
+        stdscr.hline(3, 1, curses.ACS_HLINE, max_x - 2)
 
-        box_top = 5
-        box_height = max_y - 8
+        # Menu Items
+        items = current_menu if isinstance(current_menu, list) else current_menu.get("items", [])
+        cursor = cursor_stack[-1]
+        start_y = 5
 
-        for i, item in enumerate(items):
-            if i >= box_height:
+        for idx, item in enumerate(items):
+            y = start_y + idx
+            if y >= max_y - 3:
                 break
-            y = box_top + i
-            is_sel = (i == cur_idx)
 
-            if "items" in item: # Submenu
-                display = f"   ---> {item['title']}"
+            prefix = "    "
+            is_selected = (idx == cursor)
+
+            if item.get("type") == "submenu":
+                line_text = f"---> {item['title']}"
             elif item.get("type") == "bool":
                 val = cfg.get(item["name"], False)
-                mark = "[*]" if val else "[ ]"
-                display = f"   {mark} {item['label']}"
+                state = "[*]" if val else "[ ]"
+                line_text = f"{state} {item['label']}"
             elif item.get("type") == "radio":
-                group_val = cfg.get("CONFIG_ARCH", "x86_64")
-                mark = "(*)" if group_val == item["val"] else "( )"
-                display = f"   {mark} {item['label']}"
+                group = item.get("group")
+                if group == "arch":
+                    val = (cfg.get("CONFIG_ARCH") == item["val"])
+                elif group == "opt":
+                    val = (cfg.get("CONFIG_OPTIMIZATION") == item["val"])
+                else:
+                    val = False
+                state = "(*)" if val else "( )"
+                line_text = f"{state} {item['label']}"
             else:
-                display = f"   {item.get('label', item.get('title', ''))}"
+                line_text = item.get("title", "")
 
-            if is_sel:
+            display_line = f"{prefix}{line_text}".ljust(max_x - 6)[:max_x - 6]
+
+            if is_selected:
                 stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
-                stdscr.addstr(y, 4, display.ljust(max_x - 10)[:max_x - 10])
+                stdscr.addstr(y, 2, f" {display_line} ")
                 stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
             else:
                 stdscr.attron(curses.color_pair(2))
-                stdscr.addstr(y, 4, display[:max_x - 10])
+                stdscr.addstr(y, 2, f" {display_line} ")
                 stdscr.attroff(curses.color_pair(2))
 
-        # Footer Status Bar
-        footer = " <Select>   <Exit / Return>   <Save Configuration>   <Help> "
+        # Bottom Status Bar
         stdscr.attron(curses.color_pair(1))
-        stdscr.addstr(max_y - 1, 0, footer.center(max_x - 1)[:max_x - 1])
+        bottom_bar = " <Save> [S]   <Exit> [Q]   <Help> [?]   <Defaults> [D] "
+        stdscr.addstr(max_y - 1, 0, bottom_bar.ljust(max_x)[:max_x])
         stdscr.attroff(curses.color_pair(1))
 
         stdscr.refresh()
-
         key = stdscr.getch()
 
-        if key in [curses.KEY_UP, ord('k')]:
+        if key in [curses.KEY_UP, ord('k'), ord('K')]:
             if cursor_stack[-1] > 0:
                 cursor_stack[-1] -= 1
-        elif key in [curses.KEY_DOWN, ord('j')]:
+        elif key in [curses.KEY_DOWN, ord('j'), ord('J')]:
             if cursor_stack[-1] < len(items) - 1:
                 cursor_stack[-1] += 1
         elif key in [curses.KEY_ENTER, 10, 13]:
             sel_item = items[cursor_stack[-1]]
-            if "items" in sel_item:
-                menu_stack.append(sel_item)
+            if sel_item.get("type") == "submenu":
+                menu_stack.append(current_menu)
                 cursor_stack.append(0)
+                current_menu = sel_item
             elif sel_item.get("type") == "bool":
                 name = sel_item["name"]
                 cfg[name] = not cfg.get(name, False)
             elif sel_item.get("type") == "radio":
-                cfg["CONFIG_ARCH"] = sel_item["val"]
-                if sel_item["val"] == "x86_64":
-                    cfg["CONFIG_ARCH_X86_64"] = True
-                    cfg["CONFIG_ARCH_AARCH64"] = False
-                    cfg["CONFIG_ARCH_ARMV8I"] = False
-                elif sel_item["val"] == "aarch64":
-                    cfg["CONFIG_ARCH_X86_64"] = False
-                    cfg["CONFIG_ARCH_AARCH64"] = True
-                    cfg["CONFIG_ARCH_ARMV8I"] = False
-                elif sel_item["val"] == "armv8i":
-                    cfg["CONFIG_ARCH_X86_64"] = False
-                    cfg["CONFIG_ARCH_AARCH64"] = False
-                    cfg["CONFIG_ARCH_ARMV8I"] = True
+                group = sel_item.get("group")
+                if group == "arch":
+                    cfg["CONFIG_ARCH"] = sel_item["val"]
+                    cfg["CONFIG_ARCH_X86_64"] = (sel_item["val"] == "x86_64")
+                    cfg["CONFIG_ARCH_AARCH64"] = (sel_item["val"] == "aarch64")
+                    cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
+                elif group == "opt":
+                    cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
         elif key == ord(' '):
             sel_item = items[cursor_stack[-1]]
             if sel_item.get("type") == "bool":
                 name = sel_item["name"]
                 cfg[name] = not cfg.get(name, False)
             elif sel_item.get("type") == "radio":
-                cfg["CONFIG_ARCH"] = sel_item["val"]
-                if sel_item["val"] == "x86_64":
-                    cfg["CONFIG_ARCH_X86_64"] = True
-                    cfg["CONFIG_ARCH_AARCH64"] = False
-                    cfg["CONFIG_ARCH_ARMV8I"] = False
-                elif sel_item["val"] == "aarch64":
-                    cfg["CONFIG_ARCH_X86_64"] = False
-                    cfg["CONFIG_ARCH_AARCH64"] = True
-                    cfg["CONFIG_ARCH_ARMV8I"] = False
-                elif sel_item["val"] == "armv8i":
-                    cfg["CONFIG_ARCH_X86_64"] = False
-                    cfg["CONFIG_ARCH_AARCH64"] = False
-                    cfg["CONFIG_ARCH_ARMV8I"] = True
+                group = sel_item.get("group")
+                if group == "arch":
+                    cfg["CONFIG_ARCH"] = sel_item["val"]
+                    cfg["CONFIG_ARCH_X86_64"] = (sel_item["val"] == "x86_64")
+                    cfg["CONFIG_ARCH_AARCH64"] = (sel_item["val"] == "aarch64")
+                    cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
+                elif group == "opt":
+                    cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
         elif key in [ord('s'), ord('S')]:
             save_config(cfg)
             stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
@@ -340,9 +362,17 @@ def run_tui(stdscr):
             stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
             stdscr.refresh()
             stdscr.getch()
+        elif key in [ord('d'), ord('D')]:
+            cfg = dict(DEFAULTS)
+            save_config(cfg)
+            stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+            stdscr.addstr(max_y - 2, 4, " Loaded default configuration! Press any key... ")
+            stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+            stdscr.refresh()
+            stdscr.getch()
         elif key in [ord('q'), ord('Q'), 27]: # Esc or Q
             if menu_stack:
-                menu_stack.pop()
+                current_menu = menu_stack.pop()
                 cursor_stack.pop()
             else:
                 save_config(cfg)
@@ -376,8 +406,11 @@ def main():
         elif cmd == "--x86_64":
             defconfig("x86_64")
             return
-        elif cmd in ["--aarch64", "--armv8", "--armv8i"]:
-            defconfig(cmd.lstrip("-"))
+        elif cmd in ["--aarch64", "--armv8"]:
+            defconfig("aarch64")
+            return
+        elif cmd == "--armv8i":
+            defconfig("armv8i")
             return
 
     try:
