@@ -15,15 +15,23 @@ static inline void spinlock_init(spinlock_t* lock) {
 }
 
 static inline void spin_lock(spinlock_t* lock) {
-    while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE)) {
 #if defined(__x86_64__)
+    while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE)) {
         __asm__ volatile ("pause");
-#elif defined(__aarch64__)
-        __asm__ volatile ("yield");
-#else
-        __asm__ volatile ("");
-#endif
     }
+#elif defined(__aarch64__)
+    while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile ("yield");
+    }
+#elif defined(__arm__) || defined(__armv8i__)
+    while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile ("nop");
+    }
+#else
+    while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile ("");
+    }
+#endif
 }
 
 static inline void spin_unlock(spinlock_t* lock) {

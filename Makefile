@@ -46,7 +46,6 @@ ifeq ($(ARCH), x86_64)
     ASMFLAGS_BOOT = -f bin -I$(BOOT_DIR)/
     LDFLAGS       = -nostdlib -no-pie -T linker.ld
 
-    # Source files for x86_64
     ARCH_C_SRCS   = $(shell find arch/x86_64 -name '*.c' 2>/dev/null)
     ARCH_ASM_SRCS = $(shell find arch/x86_64 -name '*.asm' 2>/dev/null)
     ENTRY_OBJ     = $(BUILD_DIR)/arch/x86_64/boot/entry.o
@@ -56,7 +55,7 @@ ifeq ($(ARCH), x86_64)
                     -netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
                     -device e1000,netdev=net0 -serial stdio
 
-else ifneq ($(filter $(ARCH), aarch64 armv8 armv8i),)
+else ifneq ($(filter $(ARCH), aarch64 arm64),)
     CROSS_COMPILE ?= aarch64-linux-gnu-
     CC      = $(CROSS_COMPILE)gcc
     LD      = $(CROSS_COMPILE)ld
@@ -78,12 +77,42 @@ else ifneq ($(filter $(ARCH), aarch64 armv8 armv8i),)
 
     LDFLAGS = -nostdlib -no-pie -T arch/aarch64/linker.ld
 
-    # Source files for AArch64
     ARCH_C_SRCS   = $(shell find arch/aarch64 -name '*.c' 2>/dev/null)
     ARCH_S_SRCS   = $(shell find arch/aarch64 -name '*.S' 2>/dev/null)
     ENTRY_OBJ     = $(BUILD_DIR)/arch/aarch64/boot/entry.o
     TARGET        = $(BUILD_DIR)/kernel.elf
     QEMU_CMD      = qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -nographic -kernel $(BUILD_DIR)/kernel.elf
+
+else ifneq ($(filter $(ARCH), armv8i arm32 arm),)
+    CROSS_COMPILE ?= arm-linux-gnueabihf-
+    CC      = $(CROSS_COMPILE)gcc
+    LD      = $(CROSS_COMPILE)ld
+    OBJCOPY = $(CROSS_COMPILE)objcopy
+    AS      = $(CROSS_COMPILE)as
+
+    CFLAGS  = -ffreestanding \
+              -fno-pie \
+              -fno-pic \
+              -Wall \
+              -Wextra \
+              -Wno-unused-function \
+              -Wno-unused-parameter \
+              -O2 \
+              -Iinclude \
+              -D__arm__ \
+              -D__armv8i__ \
+              -mcpu=cortex-a15 \
+              -mfpu=neon-vfpv4 \
+              -mfloat-abi=hard \
+              -marm
+
+    LDFLAGS = -nostdlib -no-pie -T arch/armv8i/linker.ld
+
+    ARCH_C_SRCS   = $(shell find arch/armv8i -name '*.c' 2>/dev/null)
+    ARCH_S_SRCS   = $(shell find arch/armv8i -name '*.S' 2>/dev/null)
+    ENTRY_OBJ     = $(BUILD_DIR)/arch/armv8i/boot/entry.o
+    TARGET        = $(BUILD_DIR)/kernel.elf
+    QEMU_CMD      = qemu-system-arm -M virt -cpu cortex-a15 -m 128M -nographic -kernel $(BUILD_DIR)/kernel.elf
 
 else
     $(error Unsupported Architecture '$(ARCH)'. Supported: x86_64, aarch64, armv8i)
@@ -145,7 +174,7 @@ x86_64_defconfig:
 aarch64_defconfig:
 	@python3 scripts/kconfig/menuconfig.py --aarch64
 
-armv8_defconfig armv8i_defconfig:
+armv8_defconfig armv8i_defconfig arm32_defconfig:
 	@python3 scripts/kconfig/menuconfig.py --armv8i
 
 # -----------------------------------------------------------------------------
@@ -161,7 +190,7 @@ $(BUILD_DIR)/%.o: %.asm
 	@mkdir -p $(dir $@)
 	$(ASM) $(ASMFLAGS_ELF) $< -o $@
 
-# AArch64 GNU Assembly Files (.S)
+# ARM/AArch64 GNU Assembly Files (.S)
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -178,8 +207,10 @@ $(BUILD_DIR)/boot/stage2.bin: $(BOOT_DIR)/stage2.asm $(BOOT_DIR)/gdt.asm | $(BUI
 $(BUILD_DIR)/boot:
 	mkdir -p $(BUILD_DIR)/boot
 
+LIBGCC ?= $(shell $(CC) $(CFLAGS) -print-libgcc-file-name 2>/dev/null)
+
 $(BUILD_DIR)/kernel.elf: $(ENTRY_OBJ) $(OTHER_OBJS)
-	$(LD) $(LDFLAGS) -o $@ $(ENTRY_OBJ) $(OTHER_OBJS)
+	$(LD) $(LDFLAGS) -o $@ $(ENTRY_OBJ) $(OTHER_OBJS) $(LIBGCC)
 	@echo "=== [Kernel ELF Linked: $@ (Architecture: $(ARCH))] ==="
 
 $(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel.elf
@@ -208,8 +239,10 @@ ifeq ($(ARCH), x86_64)
 	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
 		-device e1000,netdev=net0 -serial stdio -s -S
-else
+else ifneq ($(filter $(ARCH), aarch64 arm64),)
 	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -nographic -kernel $(BUILD_DIR)/kernel.elf -s -S
+else
+	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -nographic -kernel $(BUILD_DIR)/kernel.elf -s -S
 endif
 
 info:

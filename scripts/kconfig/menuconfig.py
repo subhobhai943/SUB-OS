@@ -355,10 +355,14 @@ def defconfig(arch="x86_64"):
         cfg["CONFIG_ARCH_X86_64"] = True
         cfg["CONFIG_ARCH_AARCH64"] = False
         cfg["CONFIG_ARCH_ARMV8I"] = False
-    elif arch in ["aarch64", "armv8", "armv8i"]:
+    elif arch in ["aarch64", "arm64"]:
         cfg["CONFIG_ARCH_X86_64"] = False
         cfg["CONFIG_ARCH_AARCH64"] = True
-        cfg["CONFIG_ARCH_ARMV8I"] = (arch == "armv8i")
+        cfg["CONFIG_ARCH_ARMV8I"] = False
+    elif arch in ["armv8i", "arm32", "arm", "armv8"]:
+        cfg["CONFIG_ARCH_X86_64"] = False
+        cfg["CONFIG_ARCH_AARCH64"] = False
+        cfg["CONFIG_ARCH_ARMV8I"] = True
     save_config(cfg)
     print(f"*** Default configuration for '{arch}' written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
 

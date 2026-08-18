@@ -258,4 +258,28 @@ void kernel_main_aarch64(void) {
 
     subos_modular_core_boot();
 }
+#elif defined(__arm__) || defined(__armv8i__)
+void kernel_main_armv8i(void) {
+    arch_early_init();
+    printk_init();
+
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "   SUB-OS 32-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n\n" ANSI_RESET);
+
+    init_early("root=/dev/vda console=ttyAMA0 init=/bin/lazybox quiet");
+
+    printk(KERN_INFO "[1/14] Initializing ARMv8i CPU, GICv2, Generic Timer & MMU... ");
+    arch_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    printk(KERN_INFO "[2/14] Initializing Physical PMM, Dynamic Heap & SLAB Cache... ");
+    pmm_init(NULL, 0);
+    heap_init();
+    slab_init();
+    vma_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    subos_modular_core_boot();
+}
 #endif

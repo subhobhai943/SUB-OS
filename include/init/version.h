@@ -14,6 +14,10 @@
 #define SUBOS_VERSION_STRING "0.2.0-lts (aarch64)"
 #define SUBOS_BUILD_TARGET "aarch64-linux-gnu-baremetal"
 #define SUBOS_COMPILER "aarch64-linux-gnu-gcc"
+#elif defined(__arm__) || defined(__armv8i__)
+#define SUBOS_VERSION_STRING "0.2.0-lts (armv8i)"
+#define SUBOS_BUILD_TARGET "arm-linux-gnueabihf-baremetal"
+#define SUBOS_COMPILER "arm-linux-gnueabihf-gcc"
 #else
 #define SUBOS_VERSION_STRING "0.2.0-lts (generic)"
 #define SUBOS_BUILD_TARGET "generic-elf-baremetal"

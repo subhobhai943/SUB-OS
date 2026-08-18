@@ -49,7 +49,7 @@ void pmm_init(void* memory_map, uint64_t memory_map_count) {
 
     // Fallback if no E820 usable regions
     if (usable_memory_bytes == 0 || total_pages == 0) {
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
         uint64_t dram_start = 0x40000000;
         uint64_t dram_size  = 128ULL * 1024 * 1024;
         uint64_t start_page = dram_start / PMM_PAGE_SIZE;

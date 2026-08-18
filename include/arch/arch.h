@@ -79,7 +79,48 @@ static inline void arch_sleep(uint32_t ms) {
     }
 }
 
-// Prototype declarations for timer/interrupt compatibility
+uint64_t pit_get_ticks(void);
+void     pit_sleep(uint32_t ms);
+
+#elif defined(__arm__) || defined(__armv8i__)
+#define ARCH_NAME "armv8i"
+#define ARCH_IS_64BIT 0
+#include <arch/armv8i/arch.h>
+#include <arch/armv8i/cpu.h>
+#include <arch/armv8i/gic.h>
+#include <arch/armv8i/timer.h>
+#include <arch/armv8i/mmu.h>
+#include <arch/armv8i/uart.h>
+#include <arch/armv8i/io.h>
+
+static inline void arch_enable_interrupts(void) {
+    __asm__ volatile("cpsie i" ::: "memory");
+}
+
+static inline void arch_disable_interrupts(void) {
+    __asm__ volatile("cpsid i" ::: "memory");
+}
+
+static inline void arch_halt(void) {
+    __asm__ volatile("wfi");
+}
+
+static inline void arch_wait_for_interrupt(void) {
+    __asm__ volatile("cpsie i; wfi" ::: "memory");
+}
+
+static inline uint64_t arch_get_ticks(void) {
+    return armv8i_timer_get_ticks();
+}
+
+static inline void arch_sleep(uint32_t ms) {
+    uint64_t count = (ms > 10) ? (ms / 10) : 1;
+    uint64_t target = armv8i_timer_get_ticks() + count;
+    while (armv8i_timer_get_ticks() < target) {
+        __asm__ volatile("wfi");
+    }
+}
+
 uint64_t pit_get_ticks(void);
 void     pit_sleep(uint32_t ms);
 

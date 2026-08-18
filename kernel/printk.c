@@ -45,8 +45,8 @@ int vprintk(const char* fmt, va_list args) {
     // 1. Output to active TTY console
     tty_write(display_ptr, (size_t)len);
 
-    // 2. Output to serial console (COM1 on x86, PL011 on AArch64)
-#if defined(__aarch64__)
+    // 2. Output to serial console (COM1 on x86, PL011 on ARM/AArch64)
+#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
     extern void uart_pl011_putc(char c);
     for (int i = 0; i < len; i++) {
         uart_pl011_putc(display_ptr[i]);

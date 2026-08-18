@@ -125,10 +125,12 @@ void keyboard_init(void) {
 
 #if defined(__aarch64__)
 #include <arch/aarch64/uart.h>
+#elif defined(__arm__) || defined(__armv8i__)
+#include <arch/armv8i/uart.h>
 #endif
 
 bool keyboard_has_key(void) {
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
     if (uart_pl011_has_data()) return true;
 #endif
     return buffer_head != buffer_tail;
@@ -138,7 +140,7 @@ uint16_t keyboard_get_key(void) {
     while (!keyboard_has_key()) {
         arch_halt();
     }
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
     if (uart_pl011_has_data()) {
         char c = uart_pl011_getc();
         if (c == '\r') c = '\n';

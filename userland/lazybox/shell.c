@@ -109,9 +109,12 @@ static void cmd_neofetch(void) {
 #elif defined(__aarch64__)
     const aarch64_cpu_info_t* cpu = aarch64_get_cpu_info();
     printk(ANSI_BRIGHT_CYAN "  \\___ \\| |  | |  _ <    " ANSI_BRIGHT_GREEN  "CPU:     " ANSI_RESET "%s (EL%u)\n", cpu->model_name, cpu->current_el);
+#elif defined(__arm__) || defined(__armv8i__)
+    const armv8i_cpu_info_t* cpu = armv8i_get_cpu_info();
+    printk(ANSI_BRIGHT_CYAN "  \\___ \\| |  | |  _ <    " ANSI_BRIGHT_GREEN  "CPU:     " ANSI_RESET "%s (AArch32)\n", cpu->model_name);
 #endif
     printk(ANSI_BRIGHT_CYAN "  ____) | |__| | |_) |   " ANSI_BRIGHT_GREEN  "Memory:  " ANSI_RESET "%llu MB / %llu MB (Free: %llu MB)\n", used_mb, total_mb, (free * 4096) / (1024 * 1024));
-    printk(ANSI_BRIGHT_CYAN " |_____/ \\____/|____/    " ANSI_BRIGHT_GREEN  "Heap:    " ANSI_RESET "%llu KB used / %llu KB total\n", heap_get_used_bytes() / 1024, (heap_get_used_bytes() + heap_get_free_bytes()) / 1024);
+    printk(ANSI_BRIGHT_CYAN " |_____/ \\____/|____/    " ANSI_BRIGHT_GREEN  "Heap:    " ANSI_RESET "%llu KB used / %llu KB total\n", (uint64_t)(heap_get_used_bytes() / 1024), (uint64_t)((heap_get_used_bytes() + heap_get_free_bytes()) / 1024));
     printk(ANSI_BRIGHT_CYAN "                         " ANSI_BRIGHT_GREEN  "Uptime:  " ANSI_RESET "%02llu:%02llu:%02llu\n", hours, mins, secs);
     printk(ANSI_BRIGHT_CYAN "                         " ANSI_BRIGHT_GREEN  "TTY:     " ANSI_RESET "tty%d (Alt+F1-F4 to switch)\n", tty_get_current() + 1);
     printk(" \n");
