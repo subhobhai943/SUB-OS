@@ -4,6 +4,7 @@
 #include <fs/procfs.h>
 #include <mm/kmalloc.h>
 #include <lib/string.h>
+#include <lib/printf.h>
 #include <kernel/printk.h>
 
 #define MAX_OPEN_FILES 64

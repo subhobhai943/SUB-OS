@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <lib/printf.h>
 
 // Memory functions
 void* memset(void* dest, int val, size_t count);

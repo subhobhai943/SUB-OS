@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <lib/printf.h>
 
 // Linux-compatible log level prefixes
 #define KERN_EMERG   "\0010"  /* system is unusable */
