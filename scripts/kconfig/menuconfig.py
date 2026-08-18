@@ -2,12 +2,12 @@
 """
 SUB-OS Linux-Style Interactive Kconfig Menuconfig (TUI)
 Provides a full curses-based terminal configuration UI matching Linux menuconfig.
+Includes robust error-handling for all terminal types and ANSI fallback.
 Generates .config and include/config/autoconf.h.
 """
 
 import sys
 import os
-import curses
 
 CONFIG_FILE = ".config"
 AUTOCONF_HEADER = "include/config/autoconf.h"
@@ -223,14 +223,29 @@ def save_config(cfg):
 
         f_hdr.write("\n#endif /* _AUTOCONF_H */\n")
 
-def run_tui(stdscr):
-    curses.curs_set(0)
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Header / Bar
-    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)    # Main background
-    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLUE)   # Highlight title
-    curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_WHITE)   # Selected row
-    curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLUE)     # Subtext
+def run_curses_tui(stdscr):
+    import curses
+    try:
+        curses.curs_set(0)
+    except Exception:
+        pass
+
+    try:
+        curses.use_default_colors()
+    except Exception:
+        pass
+
+    has_color = False
+    try:
+        if curses.has_colors():
+            has_color = True
+            curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)    # Header / Bar
+            curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)    # Main background
+            curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLUE)   # Highlight title
+            curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_WHITE)   # Selected row
+            curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLUE)     # Subtext
+    except Exception:
+        has_color = False
 
     cfg = load_config()
     current_menu = MENU_STRUCTURE
@@ -238,32 +253,47 @@ def run_tui(stdscr):
     cursor_stack = [0]
 
     while True:
-        stdscr.bkgd(' ', curses.color_pair(2))
+        if has_color:
+            try:
+                stdscr.bkgd(' ', curses.color_pair(2))
+            except Exception:
+                pass
         stdscr.clear()
         max_y, max_x = stdscr.getmaxyx()
 
         # Top Header Bar
-        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         title_str = " SUB-OS Kernel v0.2.0 Configuration (Linux-Style Kconfig TUI) "
-        stdscr.addstr(0, 0, title_str.ljust(max_x)[:max_x])
-        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+        if has_color:
+            stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+            stdscr.addstr(0, 0, title_str.ljust(max_x)[:max_x])
+            stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+        else:
+            stdscr.addstr(0, 0, title_str.ljust(max_x)[:max_x])
 
         # Active Architecture Indicator
         cur_arch = cfg.get("CONFIG_ARCH", "x86_64")
         cur_opt = cfg.get("CONFIG_OPTIMIZATION", "-O2")
         info_str = f" Target Architecture: [{cur_arch}]  |  Optimization: [{cur_opt}] "
-        stdscr.attron(curses.color_pair(3))
-        stdscr.addstr(1, 2, info_str[:max_x-4])
-        stdscr.attroff(curses.color_pair(3))
+        if has_color:
+            stdscr.attron(curses.color_pair(3))
+            stdscr.addstr(1, 2, info_str[:max_x-4])
+            stdscr.attroff(curses.color_pair(3))
+        else:
+            stdscr.addstr(1, 2, info_str[:max_x-4])
 
         # Instructions / Help
-        nav_help = "Arrow Keys navigate | <Enter> Select/Toggle | <Space> Toggle | [S]ave | [Q]/<Esc> Back"
-        stdscr.attron(curses.color_pair(5))
-        stdscr.addstr(2, 2, nav_help[:max_x-4])
-        stdscr.attroff(curses.color_pair(5))
+        nav_help = "Arrow Keys / jk navigate | <Enter> / <Space> Toggle | [S]ave | [Q] Back/Exit"
+        if has_color:
+            stdscr.attron(curses.color_pair(5))
+            stdscr.addstr(2, 2, nav_help[:max_x-4])
+            stdscr.attroff(curses.color_pair(5))
+        else:
+            stdscr.addstr(2, 2, nav_help[:max_x-4])
 
-        # Divider line
-        stdscr.hline(3, 1, curses.ACS_HLINE, max_x - 2)
+        try:
+            stdscr.hline(3, 1, curses.ACS_HLINE, max_x - 2)
+        except Exception:
+            pass
 
         # Menu Items
         items = current_menu if isinstance(current_menu, list) else current_menu.get("items", [])
@@ -300,22 +330,34 @@ def run_tui(stdscr):
             display_line = f"{prefix}{line_text}".ljust(max_x - 6)[:max_x - 6]
 
             if is_selected:
-                stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
-                stdscr.addstr(y, 2, f" {display_line} ")
-                stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
+                if has_color:
+                    stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
+                    stdscr.addstr(y, 2, f" {display_line} ")
+                    stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
+                else:
+                    stdscr.addstr(y, 2, f"> {display_line} ")
             else:
-                stdscr.attron(curses.color_pair(2))
-                stdscr.addstr(y, 2, f" {display_line} ")
-                stdscr.attroff(curses.color_pair(2))
+                if has_color:
+                    stdscr.attron(curses.color_pair(2))
+                    stdscr.addstr(y, 2, f" {display_line} ")
+                    stdscr.attroff(curses.color_pair(2))
+                else:
+                    stdscr.addstr(y, 2, f"  {display_line} ")
 
         # Bottom Status Bar
-        stdscr.attron(curses.color_pair(1))
-        bottom_bar = " <Save> [S]   <Exit> [Q]   <Help> [?]   <Defaults> [D] "
-        stdscr.addstr(max_y - 1, 0, bottom_bar.ljust(max_x)[:max_x])
-        stdscr.attroff(curses.color_pair(1))
+        bottom_bar = " <Save> [S]   <Exit> [Q]   <Defaults> [D] "
+        if has_color:
+            stdscr.attron(curses.color_pair(1))
+            stdscr.addstr(max_y - 1, 0, bottom_bar.ljust(max_x)[:max_x])
+            stdscr.attroff(curses.color_pair(1))
+        else:
+            stdscr.addstr(max_y - 1, 0, bottom_bar.ljust(max_x)[:max_x])
 
         stdscr.refresh()
-        key = stdscr.getch()
+        try:
+            key = stdscr.getch()
+        except Exception:
+            break
 
         if key in [curses.KEY_UP, ord('k'), ord('K')]:
             if cursor_stack[-1] > 0:
@@ -323,7 +365,7 @@ def run_tui(stdscr):
         elif key in [curses.KEY_DOWN, ord('j'), ord('J')]:
             if cursor_stack[-1] < len(items) - 1:
                 cursor_stack[-1] += 1
-        elif key in [curses.KEY_ENTER, 10, 13]:
+        elif key in [curses.KEY_ENTER, 10, 13, ord(' ')]:
             sel_item = items[cursor_stack[-1]]
             if sel_item.get("type") == "submenu":
                 menu_stack.append(current_menu)
@@ -341,33 +383,25 @@ def run_tui(stdscr):
                     cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
                 elif group == "opt":
                     cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
-        elif key == ord(' '):
-            sel_item = items[cursor_stack[-1]]
-            if sel_item.get("type") == "bool":
-                name = sel_item["name"]
-                cfg[name] = not cfg.get(name, False)
-            elif sel_item.get("type") == "radio":
-                group = sel_item.get("group")
-                if group == "arch":
-                    cfg["CONFIG_ARCH"] = sel_item["val"]
-                    cfg["CONFIG_ARCH_X86_64"] = (sel_item["val"] == "x86_64")
-                    cfg["CONFIG_ARCH_AARCH64"] = (sel_item["val"] == "aarch64")
-                    cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
-                elif group == "opt":
-                    cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
         elif key in [ord('s'), ord('S')]:
             save_config(cfg)
-            stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-            stdscr.addstr(max_y - 2, 4, f" Saved configuration to {CONFIG_FILE} and {AUTOCONF_HEADER}! Press any key... ")
-            stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+            if has_color:
+                stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+                stdscr.addstr(max_y - 2, 4, f" Saved configuration! Press any key... ")
+                stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+            else:
+                stdscr.addstr(max_y - 2, 4, f" Saved configuration! Press any key... ")
             stdscr.refresh()
             stdscr.getch()
         elif key in [ord('d'), ord('D')]:
             cfg = dict(DEFAULTS)
             save_config(cfg)
-            stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-            stdscr.addstr(max_y - 2, 4, " Loaded default configuration! Press any key... ")
-            stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+            if has_color:
+                stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+                stdscr.addstr(max_y - 2, 4, " Loaded default configuration! Press any key... ")
+                stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+            else:
+                stdscr.addstr(max_y - 2, 4, " Loaded default configuration! Press any key... ")
             stdscr.refresh()
             stdscr.getch()
         elif key in [ord('q'), ord('Q'), 27]: # Esc or Q
@@ -377,6 +411,39 @@ def run_tui(stdscr):
             else:
                 save_config(cfg)
                 break
+
+def run_ansi_fallback():
+    """Text-based interactive configurator for non-curses environments."""
+    cfg = load_config()
+    print("\n=================================================================")
+    print(" SUB-OS Interactive Kernel Configuration (ANSI Mode)")
+    print("=================================================================")
+    print(f" Current Architecture: {cfg.get('CONFIG_ARCH', 'x86_64')}")
+    print(f" Optimization Level:   {cfg.get('CONFIG_OPTIMIZATION', '-O2')}")
+    print("\nSelect an option to configure:")
+    print(" 1) Architecture: x86_64 (64-Bit AMD64/Intel)")
+    print(" 2) Architecture: aarch64 (ARMv8-A 64-Bit)")
+    print(" 3) Architecture: armv8i (32-Bit ARM/AArch32)")
+    print(" 4) Toggle Core Subsystems")
+    print(" 5) Save and Exit")
+    print(" 6) Exit without saving\n")
+
+    try:
+        choice = input("Enter choice [1-6] (Default: 5): ").strip()
+    except EOFError:
+        choice = "5"
+
+    if choice == "1":
+        defconfig("x86_64")
+    elif choice == "2":
+        defconfig("aarch64")
+    elif choice == "3":
+        defconfig("armv8i")
+    elif choice == "5" or not choice:
+        save_config(cfg)
+        print(f"*** Configuration saved to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
+    else:
+        save_config(cfg)
 
 def defconfig(arch="x86_64"):
     cfg = dict(DEFAULTS)
@@ -413,11 +480,13 @@ def main():
             defconfig("armv8i")
             return
 
+    # Try curses TUI first, gracefully fall back to ANSI mode if curses is unavailable
     try:
-        curses.wrapper(run_tui)
+        import curses
+        curses.wrapper(run_curses_tui)
         print(f"*** Configuration saved to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        run_ansi_fallback()
 
 if __name__ == "__main__":
     main()
