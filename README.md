@@ -189,16 +189,16 @@ make run-gui
 
 ---
 
-## 🧰 LazyBox Command Matrix (80+ Utilities)
+## 🧰 LazyBox Command Matrix (85+ Utilities)
 
 | Category | Commands Included |
 |---|---|
 | **Core & Shell** | `lazybox`, `sh`, `echo`, `env`, `export`, `whoami`, `id`, `date`, `cal`, `jsonquery`, `subi` |
-| **Filesystem & Edit** | `nano`, `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `grep`, `hexdump`, `dcache` |
-| **Networking & Servers** | `ifconfig`, `ping`, `arp`, `dhclient`, `nslookup`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
+| **Filesystem & Search** | `nano`, `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `tree`, `find`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `grep`, `hexdump`, `dcache` |
+| **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
 | **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `mouse`, `alsamixer`, `tts`, `virtinfo` |
-| **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `cryptobench` |
-| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo` |
+| **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `cryptobench` |
+| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
 | **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat`, `calc`, `matrix` |
 | **System Control** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty` |
