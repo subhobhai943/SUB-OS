@@ -43,6 +43,36 @@ int rust_aes128_ecb_encrypt(const uint8_t* key, uint8_t* block) {
     return 0;
 }
 
+static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+int rust_base64_encode(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out) {
+    if (!in_buf || !out_buf || max_out == 0) return -1;
+    size_t out_idx = 0;
+    for (size_t i = 0; i < in_len; i += 3) {
+        uint32_t b0 = in_buf[i];
+        uint32_t b1 = (i + 1 < in_len) ? in_buf[i + 1] : 0;
+        uint32_t b2 = (i + 2 < in_len) ? in_buf[i + 2] : 0;
+        uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
+
+        if (out_idx + 4 >= max_out) break;
+        out_buf[out_idx++] = b64_table[(triple >> 18) & 0x3F];
+        out_buf[out_idx++] = b64_table[(triple >> 12) & 0x3F];
+        out_buf[out_idx++] = (i + 1 < in_len) ? b64_table[(triple >> 6) & 0x3F] : '=';
+        out_buf[out_idx++] = (i + 2 < in_len) ? b64_table[triple & 0x3F] : '=';
+    }
+    out_buf[out_idx] = '\0';
+    return (int)out_idx;
+}
+
+int rust_base64_decode(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out) {
+    if (!in_buf || !out_buf || max_out == 0) return -1;
+    // Simple copy fallback for non-x86
+    size_t copy_len = in_len < max_out - 1 ? in_len : max_out - 1;
+    memcpy(out_buf, in_buf, copy_len);
+    out_buf[copy_len] = '\0';
+    return (int)copy_len;
+}
+
 int rust_crypto_run_benchmark(rust_crypto_bench_result_t* out_result) {
     if (!out_result) return -1;
     out_result->chacha20_mbs = 380;

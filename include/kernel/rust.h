@@ -76,6 +76,8 @@ int rust_chacha20_crypt(const uint8_t* key, const uint8_t* nonce, uint32_t count
 int rust_csprng_get_random(uint8_t* buffer, size_t len);
 int rust_sha3_256(const uint8_t* data, size_t len, uint8_t* out);
 int rust_aes128_ecb_encrypt(const uint8_t* key, uint8_t* block);
+int rust_base64_encode(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out);
+int rust_base64_decode(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out);
 int rust_crypto_run_benchmark(rust_crypto_bench_result_t* out_result);
 
 // Hardware & Drivers
