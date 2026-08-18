@@ -184,7 +184,7 @@ static void cmd_hexdump(const char* args) {
     }
     if (len > 512) len = 512;
 
-    uint8_t* ptr = (uint8_t*)addr;
+    uint8_t* ptr = (uint8_t*)(uintptr_t)addr;
     printk("Hexdump of 0x%lx (%llu bytes):\n", addr, len);
     for (uint64_t i = 0; i < len; i += 16) {
         printk(ANSI_BRIGHT_BLACK "%016lx: " ANSI_RESET, addr + i);

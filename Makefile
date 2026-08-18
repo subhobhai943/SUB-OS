@@ -83,7 +83,7 @@ else ifneq ($(filter $(ARCH), aarch64 arm64),)
     TARGET        = $(BUILD_DIR)/kernel.elf
     QEMU_CMD      = qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -nographic -kernel $(BUILD_DIR)/kernel.elf
 
-else ifneq ($(filter $(ARCH), armv8i arm32 arm),)
+else ifneq ($(filter $(ARCH), armv8i armv81 arm32 arm armv7 armv7-a armv7a aarch32),)
     CROSS_COMPILE ?= arm-linux-gnueabihf-
     CC      = $(CROSS_COMPILE)gcc
     LD      = $(CROSS_COMPILE)ld
@@ -300,7 +300,7 @@ else
     OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(S_OBJS) $(C_OBJS))
 endif
 
-.PHONY: all clean run debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig qemu help
+.PHONY: all clean run debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
 
 all: $(TARGET)
 
@@ -319,7 +319,7 @@ x86_64_defconfig:
 aarch64_defconfig:
 	@python3 scripts/kconfig/menuconfig.py --aarch64
 
-armv8_defconfig armv8i_defconfig arm32_defconfig:
+armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig:
 	@python3 scripts/kconfig/menuconfig.py --armv8i
 
 # -----------------------------------------------------------------------------

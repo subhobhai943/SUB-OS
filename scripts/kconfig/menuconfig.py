@@ -711,7 +711,7 @@ def defconfig(arch="x86_64"):
         cfg["CONFIG_ARCH_X86_64"] = False
         cfg["CONFIG_ARCH_AARCH64"] = True
         cfg["CONFIG_ARCH_ARMV8I"] = False
-    elif arch in ["armv8i", "arm32", "arm", "armv8"]:
+    elif arch in ["armv8i", "armv81", "arm32", "arm", "armv8", "aarch32"]:
         cfg["CONFIG_ARCH_X86_64"] = False
         cfg["CONFIG_ARCH_AARCH64"] = False
         cfg["CONFIG_ARCH_ARMV8I"] = True
@@ -728,10 +728,10 @@ def main():
         elif cmd == "--x86_64":
             defconfig("x86_64")
             return
-        elif cmd in ["--aarch64", "--armv8"]:
+        elif cmd in ["--aarch64", "--armv8", "--arm64"]:
             defconfig("aarch64")
             return
-        elif cmd == "--armv8i":
+        elif cmd in ["--armv8i", "--armv81", "--arm32", "--arm", "--aarch32"]:
             defconfig("armv8i")
             return
 
