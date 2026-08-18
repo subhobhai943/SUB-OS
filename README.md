@@ -11,8 +11,9 @@
 
 [![Architectures](https://img.shields.io/badge/arch-x86__64%20%7C%20aarch64%20%7C%20armv8i-blue.svg?style=flat-square)]()
 [![Kernel](https://img.shields.io/badge/kernel-Modular%20Monolithic-red.svg?style=flat-square)]()
-[![SUB Language](https://img.shields.io/badge/sub--lang-Native%20%2B%20In--Kernel%20VM-blueviolet.svg?style=flat-square)]()
+[![C++ Layer](https://img.shields.io/badge/c%2B%2B-Freestanding%20C%2B%2B17%20OOP-blue.svg?style=flat-square)]()
 [![Rust Layer](https://img.shields.io/badge/rust-Rust--for--SUB--OS%20no__std-orange.svg?style=flat-square)]()
+[![SUB Language](https://img.shields.io/badge/sub--lang-Native%20%2B%20In--Kernel%20VM-blueviolet.svg?style=flat-square)]()
 [![Configuration](https://img.shields.io/badge/config-Linux%20Kconfig%20lxdialog%20TUI-cyan.svg?style=flat-square)]()
 [![Version](https://img.shields.io/badge/version-v0.2.0--lts-purple.svg?style=flat-square)]()
 [![Release](https://img.shields.io/badge/release-v0.0.1--beta-brightgreen.svg?style=flat-square)](https://github.com/subhobhai943/SUB-OS/releases/tag/v0.0.1-beta)
@@ -20,12 +21,18 @@
 [![Networking](https://img.shields.io/badge/network-TCP%2FIP%20%7C%20SSHD%20%7C%20HTTPD%20%7C%20NetFilter-green.svg?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg?style=flat-square)](LICENSE)
 
-**SUB-OS** is a multi-architecture, production-grade modular monolithic operating system kernel engineered in **C, Assembly, freestanding bare-metal Rust (`no_std`), and the custom SUB Language (`.sb`)**. Built for high performance, memory safety, modularity, and Unix/Linux compatibility, SUB-OS supports **64-bit x86 (`x86_64`)**, **64-bit ARM (`aarch64`)**, and **32-bit ARM (`armv8i` / AArch32)** targets.
+**SUB-OS** is a multi-architecture, production-grade modular monolithic operating system kernel engineered in **C, C++17, Assembly, freestanding bare-metal Rust (`no_std`), and the custom SUB Language (`.sb`)**. Built for high performance, memory safety, modularity, and Unix/Linux compatibility, SUB-OS supports **64-bit x86 (`x86_64`)**, **64-bit ARM (`aarch64`)**, and **32-bit ARM (`armv8i` / AArch32)** targets.
 
 ---
 
 ## 🌟 Key Architecture & Capabilities
 
+- ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:
+  - **Bare-Metal C++ Runtime**: `operator new`/`delete`, sized deallocation, placement `new`, pure virtual handlers (`__cxa_pure_virtual`), and `.init_array` global constructor dispatcher.
+  - **Object-Oriented Subsystems**: Polymorphic `AbstractKernelService` hierarchy with runtime virtual method dispatch, RAII, dynamic memory management, and template-based fixed ring buffers (`FixedRingBuffer`).
+  - **Interactive C++ Commands**: `cppinfo` (Kernel telemetry & status) and `cpptest` (Polymorphic dispatch & dynamic allocation verifier).
+- 🐍 **Interactive In-Kernel Snake Game (`userland/lazybox/snake.c`)**:
+  - Full-featured ANSI terminal game featuring real-time keyboard control (`WASD` and Arrow keys), dynamic food generation, score counter, body growth, wall/self collision detection, and autonomous simulation mode (`snake --demo`).
 - 🔮 **SUB Programming Language Kernel Signature & In-Kernel VM (`sub/` & `kernel/sub/`)**:
   - **Native `.sb` Kernel Modules**: Key subsystems written directly in the custom SUB language:
     - [`sub/signature.sb`](file:///home/subhobhai943/Github/SUB-OS/sub/signature.sb): Kernel identity, OS signature, and author credits.
@@ -33,16 +40,14 @@
     - [`sub/benchmark.sb`](file:///home/subhobhai943/Github/SUB-OS/sub/benchmark.sb): Recursive Fibonacci and integer matrix benchmark algorithms.
     - [`sub/easter_egg.sb`](file:///home/subhobhai943/Github/SUB-OS/sub/easter_egg.sb): Interactive kernel quotes and easter eggs.
   - **In-Kernel SUB Virtual Machine & AST Interpreter (`subi`)**: Run `.sb` scripts or inline expressions live from the shell (`subi file.sb` or `subi -e "var x=10; print(x*2)"`).
-  - **Interactive Userland Commands**: `subinfo`, `subi`, `subpower`, `subbench`, `subquote`.
 - 🦀 **"Rust for SUB-OS" Memory-Safe Kernel Layer (`rust/src/`)**:
   - **Freestanding Bare-Metal Rust**: Compiled with `rustc 1.75+` in pure `no_std` mode with static FFI bindings.
-  - **Memory-Safe Cryptography**: RFC-8439 ChaCha20 stream cipher, CSPRNG entropy source, FIPS-202 SHA3-256 (Keccak-f[1600]), and FIPS-197 AES-128.
+  - **Memory-Safe Cryptography**: RFC-8439 ChaCha20 stream cipher, CSPRNG entropy source, FIPS-202 SHA3-256 (Keccak-f[1600]), FIPS-197 AES-128, and RFC-4648 Base64 codec.
   - **Storage & Disk Parsing**: Memory-safe MBR and GUID Partition Table (GPT) header and partition decoder.
   - **Fast VFS Directory Cache (`dcache`)**: 64-entry LRU path hash table for single-cycle file and directory lookups.
   - **Kernel Health Watchdog & Heartbeat Monitor**: Subsystem sanity checker and anomaly detector.
   - **Zero-Copy JSON Tokenizer**: High-speed JSON key-value query engine for kernel configuration and REST API parsing.
   - **NetFilter Packet Evaluator**: Stateful firewall rule matcher and packet counter.
-  - **Safe `kprint!` / `kprintln!`**: Core formatting engine bridging Rust macros directly to the kernel console.
 - 🎯 **Multi-Architecture HAL**:
   - **`x86_64` (AMD64 / Intel 64)**: Custom 2-stage MBR bootloader, E820 BIOS memory mapping, 4-level PML4 48-bit paging, GDT, 256-entry IDT, 8259 PIC, 8254 PIT timer, Hardware FPU/SSE (CR4.OSFXSR).
   - **`aarch64` (ARMv8-A 64-Bit)**: Exception levels (EL1), 16-entry vector table, ARM Generic Interrupt Controller (GICv2), ARM Generic Arch Timer (100 Hz), Stage-1 39-bit VA MMU, PL011 UART.
@@ -73,10 +78,10 @@
   - **io_uring** lockless asynchronous Submission/Completion ring buffers.
   - Preemptive multi-tasking scheduler with Round-Robin quantum and spinlock synchronization.
   - Systemd-style unit manager (`systemctl`), cron background scheduler (`crond`), and RFC 5424 Syslog engine.
-- 🧰 **LazyBox Userland Suite (80+ Linux, Rust & SUB-Lang Applets)**:
+- 🧰 **LazyBox Userland Suite (85+ Linux, Rust, C++ & SUB-Lang Applets)**:
   - Interactive shell with history, quote-aware tokenization, tab autocompletion, ANSI cursor editing, and script runner (`sh`).
   - GNU-compatible **Nano** visual text editor.
-  - Full utilities: `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `grep`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `hexdump`, `neofetch`, `uname`, `free`, `uptime`, `top`, `ps`, `dmesg`, `netstat`, `ifconfig`, `ping`, `curl`, `ssh`, `tts`, `alsamixer`, `sensors`, `rustinfo`, `chacha20`, `sha3sum`, `cryptobench`, `fdisk`, `rfilter`, `dcache`, `watchdog`, `jsonquery`, `subinfo`, `subi`, `subpower`, `subbench`, `subquote`, and more.
+  - Full utilities: `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `tree`, `find`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `hexdump`, `neofetch`, `uname`, `free`, `uptime`, `top`, `ps`, `pstree`, `kill`, `dmesg`, `netstat`, `ifconfig`, `ping`, `traceroute`, `curl`, `ssh`, `tts`, `alsamixer`, `sensors`, `rustinfo`, `chacha20`, `sha3sum`, `base64`, `cryptobench`, `fdisk`, `rfilter`, `dcache`, `watchdog`, `jsonquery`, `subinfo`, `subi`, `subpower`, `subbench`, `subquote`, `cppinfo`, `cpptest`, `snake`, and more.
 
 ---
 
@@ -85,14 +90,17 @@
 ```text
 +------------------------------------------------------------------------------------+
 |                             USERLAND & SYSTEM SUITE                                |
-|  Interactive Shell | GNU Nano | Script Runner (sh) | LazyBox Suite (80+ Tools)     |
+|  Interactive Shell | GNU Nano | Snake Game | Script Runner (sh) | LazyBox (85+ Apps)|
 |  Micro HTTP Server | SSH 2.0 Daemon | Service Manager (systemctl) | Syslog Engine  |
 +------------------------------------------------------------------------------------+
 |                       SUB LANGUAGE IN-KERNEL VM & MODULES                          |
 |  subi Interpreter | OS Signature | CPU Power Governor | Recursive Math Benchmark   |
 +------------------------------------------------------------------------------------+
+|                      FREESTANDING C++17 OOP KERNEL ENGINE                          |
+|  Virtual Method Dispatch | RAII | Polymorphism | Telemetry Classes | Templates     |
++------------------------------------------------------------------------------------+
 |                       RUST-FOR-SUB-OS MEMORY-SAFE SUBSYSTEM                        |
-|  ChaCha20 CSPRNG | SHA3-256 Keccak | AES-128 | GPT/MBR Parser | NetFilter Matcher  |
+|  ChaCha20 CSPRNG | SHA3-256 Keccak | AES-128 | Base64 | GPT/MBR | NetFilter Matcher|
 |  VFS DCache Table | Kernel Health Watchdog | Zero-Copy JSON | Hardware Sensors     |
 +------------------------------------------------------------------------------------+
 |                         VIRTUAL FILE SYSTEM LAYER (VFS)                            |
@@ -130,7 +138,7 @@ Install the standard build essentials, cross-compilers, and Rust toolchain:
 ```bash
 # Ubuntu / Debian
 sudo apt update
-sudo apt install build-essential nasm qemu-system-x86 qemu-system-arm \
+sudo apt install build-essential g++ nasm qemu-system-x86 qemu-system-arm \
                  gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
                  gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
                  rustc cargo dialog python3
@@ -198,9 +206,10 @@ make run-gui
 | **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
 | **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `mouse`, `alsamixer`, `tts`, `virtinfo` |
 | **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `cryptobench` |
-| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo` |
+| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest` |
+| **Entertainment & Games** | `snake`, `matrix`, `calc` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
-| **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat`, `calc`, `matrix` |
+| **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat` |
 | **System Control** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty` |
 
 ---
