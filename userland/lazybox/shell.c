@@ -252,8 +252,16 @@ static void shell_process(const char* cmd) {
     while (*token) {
         while (*token == ' ') *token++ = '\0';
         if (*token == '\0') break;
-        if (argc < 16) argv[argc++] = token;
-        while (*token && *token != ' ') token++;
+
+        if (*token == '"' || *token == '\'') {
+            char quote = *token++;
+            if (argc < 16) argv[argc++] = token;
+            while (*token && *token != quote) token++;
+            if (*token == quote) *token++ = '\0';
+        } else {
+            if (argc < 16) argv[argc++] = token;
+            while (*token && *token != ' ') token++;
+        }
     }
     if (argc == 0) return;
 

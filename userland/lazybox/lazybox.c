@@ -765,6 +765,67 @@ static int applet_chacha20(int argc, char** argv) {
     return 0;
 }
 
+static int applet_sha3sum(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: sha3sum <text>\n");
+        return 1;
+    }
+    const char* text = argv[1];
+    uint8_t hash[32];
+    rust_sha3_256((const uint8_t*)text, strlen(text), hash);
+
+    for (int i = 0; i < 32; i++) {
+        printk("%02x", hash[i]);
+    }
+    printk("  %s (Rust SHA3-256)\n", text);
+    return 0;
+}
+
+static int applet_dcache(int argc, char** argv) {
+    (void)argc; (void)argv;
+    uint64_t hits = 0, misses = 0;
+    rust_dcache_get_metrics(&hits, &misses);
+    printk(ANSI_BRIGHT_CYAN "=== Rust VFS Directory Entry Cache (dcache) Metrics ===\n" ANSI_RESET);
+    printk("  Cache Status : " ANSI_GREEN "ACTIVE" ANSI_RESET " (LRU 64-Entry Fast Hash)\n");
+    printk("  Cache Hits   : " ANSI_YELLOW "%llu\n" ANSI_RESET, (uint64_t)hits);
+    printk("  Cache Misses : " ANSI_YELLOW "%llu\n" ANSI_RESET, (uint64_t)misses);
+    return 0;
+}
+
+static int applet_watchdog(int argc, char** argv) {
+    (void)argc; (void)argv;
+    rust_health_report_t report = rust_watchdog_get_report();
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Rust Kernel Health & Watchdog Report ===\n" ANSI_RESET);
+    printk("  Status         : %s\n", report.is_healthy ? ANSI_GREEN "HEALTHY (NOMINAL)" ANSI_RESET : ANSI_RED "WARNING" ANSI_RESET);
+    printk("  Heartbeats     : " ANSI_YELLOW "%llu\n" ANSI_RESET, (uint64_t)report.total_heartbeats);
+    printk("  Monitored Units: " ANSI_GREEN "%u active subsystems\n" ANSI_RESET, report.active_modules);
+    printk("  Subsystem Mask : 0x%08x\n", report.subsystem_mask);
+    return 0;
+}
+
+static int applet_jsonquery(int argc, char** argv) {
+    if (argc < 3) {
+        printk(KERN_INFO "Usage: jsonquery \"<json_string>\" <key>\n");
+        return 1;
+    }
+    const char* json_str = argv[1];
+    const char* key = argv[2];
+    char value[128];
+
+    int res = rust_json_get_string(
+        (const uint8_t*)json_str, strlen(json_str),
+        (const uint8_t*)key, strlen(key),
+        (uint8_t*)value, sizeof(value)
+    );
+
+    if (res >= 0) {
+        printk("Key '%s' = " ANSI_BRIGHT_GREEN "\"%s\"" ANSI_RESET " (Parsed via Rust Zero-Copy Engine)\n", key, value);
+    } else {
+        printk(ANSI_RED "Key '%s' not found in JSON payload.\n" ANSI_RESET, key);
+    }
+    return 0;
+}
+
 static int applet_whoami(int argc, char** argv) {
     (void)argc; (void)argv;
     const user_account_t* u = auth_get_current_user();
@@ -1614,6 +1675,10 @@ static const lazybox_applet_t applets[] = {
     {"clear",         applet_clear,         "clear",                     "Clear console screen",       "Terminal"},
     {"rustinfo",      applet_rustinfo,      "rustinfo",                  "Rust subsystem & safety telemetry", "System"},
     {"chacha20",      applet_chacha20,      "chacha20 <text>",           "Rust ChaCha20 stream cipher", "Crypto"},
+    {"sha3sum",       applet_sha3sum,       "sha3sum <text>",            "Rust FIPS-202 SHA3-256 hash", "Crypto"},
+    {"dcache",        applet_dcache,        "dcache",                    "Rust VFS directory cache metrics", "Filesystem"},
+    {"watchdog",      applet_watchdog,      "watchdog",                  "Rust kernel health & watchdog", "System"},
+    {"jsonquery",     applet_jsonquery,     "jsonquery \"<json>\" <key>", "Rust zero-copy JSON extractor", "Core"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

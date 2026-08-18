@@ -1,11 +1,14 @@
 //! SUB-OS Rust Kernel Layer (no_std)
-//! Integrates memory-safe drivers, cryptography, and userland telemetry.
+//! Integrates memory-safe drivers, cryptography, VFS directory cache, JSON engine and watchdog.
 
 #![no_std]
 #![no_main]
 
 pub mod printk;
 pub mod drivers;
+pub mod crypto;
+pub mod fs;
+pub mod kernel;
 
 #[no_mangle]
 pub extern "C" fn rust_eh_personality() {}
@@ -31,10 +34,13 @@ pub extern "C" fn rust_kernel_init() -> i32 {
         "\x1b[32mRUST:\x1b[0m ChaCha20 RFC-8439 Cryptographic Stream Engine online"
     );
 
+    // Ping Rust watchdog
+    kernel::watchdog::rust_watchdog_ping(1);
+
     0
 }
 
 #[no_mangle]
 pub extern "C" fn rust_kernel_status() -> *const u8 {
-    b"SUB-OS Rust Subsystem v0.2.0 (Active: ChaCha20, HWMON Thermal Governor, CSPRNG)\0".as_ptr()
+    b"SUB-OS Rust Subsystem v0.2.0 (Active: ChaCha20, SHA3, AES, DCache, JSON, HWMON, Watchdog)\0".as_ptr()
 }
