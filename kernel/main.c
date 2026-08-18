@@ -60,6 +60,7 @@
 #include <net/dns.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
+#include <kernel/cpp_kernel.h>
 #include <net/filter.h>
 #include <net/http.h>
 #include <net/ssh.h>
@@ -142,9 +143,10 @@ static void subos_modular_core_boot(void) {
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 #endif
 
-    // Crypto, Certificates, LSM Security, Authentication, Namespaces, Rust & SUB-Lang Subsystems
-    printk(KERN_INFO "[8/14] Initializing Rust Core, SUB-Lang Engine, X.509 Keyring & Auth... ");
+    // Crypto, Certificates, LSM Security, Authentication, Namespaces, Rust, SUB-Lang & C++ Subsystems
+    printk(KERN_INFO "[8/14] Initializing Rust, C++ Core, SUB-Lang Engine, Keyring & Auth... ");
     rust_kernel_init();
+    cpp_kernel_init();
     sub_kernel_init();
     prng_seed(0, 0);
     certs_init();

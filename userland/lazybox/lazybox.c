@@ -30,6 +30,8 @@
 #include <mm/kmalloc.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
+#include <kernel/cpp_kernel.h>
+#include <userland/snake.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -948,6 +950,17 @@ static int applet_subquote(int argc, char** argv) {
     printk(ANSI_BRIGHT_MAGENTA "💬 SUB-OS Signature Quote:\n" ANSI_RESET);
     printk("  \"" ANSI_BRIGHT_WHITE "%s" ANSI_RESET "\"\n\n", sub_easter_egg_get(idx));
     return 0;
+}
+
+static int applet_cppinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    cpp_kernel_print_status();
+    return 0;
+}
+
+static int applet_cpptest(int argc, char** argv) {
+    (void)argc; (void)argv;
+    return cpp_test_oop_subsystem();
 }
 
 static int applet_whoami(int argc, char** argv) {
@@ -2008,6 +2021,9 @@ static const lazybox_applet_t applets[] = {
     {"tree",          applet_tree,          "tree [dir]",                "Visual directory tree graph", "Filesystem"},
     {"find",          applet_find,          "find [path] [-name query]", "Recursive file search",      "Filesystem"},
     {"traceroute",    applet_traceroute,    "traceroute <host/ip>",      "Trace network route hops",   "Network"},
+    {"snake",         applet_snake,         "snake [--demo]",            "Interactive ANSI Snake Game", "Games"},
+    {"cppinfo",       applet_cppinfo,       "cppinfo",                   "C++ OOP kernel telemetry",   "System"},
+    {"cpptest",       applet_cpptest,       "cpptest",                   "C++ polymorphism & new/del", "System"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

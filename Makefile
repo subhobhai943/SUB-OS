@@ -277,23 +277,30 @@ CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.
 
 # Userland
 ifeq ($(CONFIG_USERLAND_LAZYBOX), y)
-    CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c
+    CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c userland/lazybox/snake.c
 endif
 
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))
 
-# Rust Layer Configuration
+# Rust & C++ Layer Configuration
 ifeq ($(ARCH), x86_64)
     RUSTC ?= rustc
     RUST_SRCS = $(shell find rust/src -name '*.rs' 2>/dev/null)
     RUST_LIB = $(BUILD_DIR)/rust/librust_kernel.a
+    CXX ?= g++
+    CXXFLAGS = -ffreestanding -fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+               -mcmodel=kernel -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
+               $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2) -Iinclude -D__x86_64__ \
+               -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
+    CPP_SRCS = kernel/cpp/cxx_runtime.cpp kernel/cpp/cpp_module.cpp
+    CPP_OBJS = $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(CPP_SRCS))
     ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
     C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
     ASM_OBJS   = $(patsubst %.asm, $(BUILD_DIR)/%.o, $(ARCH_ASM_SRCS))
-    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS)) $(RUST_LIB)
+    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS)) $(CPP_OBJS) $(RUST_LIB)
 else
-    CONFIG_SRCS-y += rust/rust_fallback.c
+    CONFIG_SRCS-y += rust/rust_fallback.c kernel/cpp/cpp_fallback.c
     ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
     C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
     S_OBJS     = $(patsubst %.S, $(BUILD_DIR)/%.o, $(ARCH_S_SRCS))
@@ -329,6 +336,11 @@ armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig:
 $(BUILD_DIR)/%.o: %.c include/config/autoconf.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# C++ Source Files
+$(BUILD_DIR)/%.o: %.cpp include/config/autoconf.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # x86_64 NASM Assembly Files
 $(BUILD_DIR)/%.o: %.asm
