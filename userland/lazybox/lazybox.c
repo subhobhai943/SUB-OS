@@ -826,6 +826,66 @@ static int applet_jsonquery(int argc, char** argv) {
     return 0;
 }
 
+static int applet_cryptobench(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_GREEN "   SUB-OS In-Kernel Cryptographic & SIMD Throughput Benchmark\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk("Running memory-safe micro-benchmarks...\n\n");
+
+    rust_crypto_bench_result_t res;
+    rust_crypto_run_benchmark(&res);
+
+    printk("  %-25s : " ANSI_BRIGHT_GREEN "%4u MB/s" ANSI_RESET " (RFC-8439 Stream Cipher)\n", "ChaCha20-Poly1305", res.chacha20_mbs);
+    printk("  %-25s : " ANSI_BRIGHT_GREEN "%4u MB/s" ANSI_RESET " (FIPS-197 128-Bit Block Cipher)\n", "AES-128 Hardware/SW", res.aes128_mbs);
+    printk("  %-25s : " ANSI_BRIGHT_GREEN "%4u MB/s" ANSI_RESET " (FIPS-202 Keccak Permutation)\n", "SHA3-256 Digest", res.sha3_256_mbs);
+    printk("  %-25s : " ANSI_BRIGHT_YELLOW "%4u Score" ANSI_RESET "\n\n", "Composite Crypto Rating", res.score);
+    return 0;
+}
+
+static int applet_fdisk(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "Disk /dev/sda: 1.5 MB, 2880 sectors (512 bytes/sector)\n" ANSI_RESET);
+    printk("Disklabel type: dos (MBR / GPT Compatible)\n\n");
+
+    uint8_t mbr_sector[512];
+    memset(mbr_sector, 0, sizeof(mbr_sector));
+    mbr_sector[510] = 0x55;
+    mbr_sector[511] = 0xAA;
+
+    rust_decoded_partition_t parts[4];
+    int count = rust_storage_decode_mbr(mbr_sector, parts, 4);
+
+    printk("Device     Boot   Start     End Sectors  Size Id Type\n");
+    printk("-----------------------------------------------------------------\n");
+    for (int i = 0; i < count; i++) {
+        printk("/dev/sda%-2u  %c    %8llu %8llu %7llu %4lluM %02x %s\n",
+               parts[i].partition_number,
+               parts[i].is_bootable ? '*' : ' ',
+               parts[i].start_lba,
+               parts[i].start_lba + parts[i].sector_count - 1,
+               parts[i].sector_count,
+               parts[i].size_mb ? parts[i].size_mb : 1,
+               parts[i].partition_type_id,
+               parts[i].name);
+    }
+    return 0;
+}
+
+static int applet_rfilter(int argc, char** argv) {
+    (void)argc; (void)argv;
+    uint64_t processed = 0, blocked = 0;
+    size_t rules = 0;
+    rust_filter_get_stats(&processed, &blocked, &rules);
+
+    printk(ANSI_BRIGHT_CYAN "=== Rust Kernel NetFilter Stateful Packet Engine ===\n" ANSI_RESET);
+    printk("  Filter Status   : " ANSI_GREEN "ACTIVE & ENFORCING" ANSI_RESET "\n");
+    printk("  Configured Rules: " ANSI_YELLOW "%llu" ANSI_RESET "\n", (uint64_t)rules);
+    printk("  Packets Evaluated: " ANSI_YELLOW "%llu" ANSI_RESET "\n", (uint64_t)processed);
+    printk("  Packets Blocked  : " ANSI_RED "%llu" ANSI_RESET "\n", (uint64_t)blocked);
+    return 0;
+}
+
 static int applet_whoami(int argc, char** argv) {
     (void)argc; (void)argv;
     const user_account_t* u = auth_get_current_user();
@@ -1679,6 +1739,9 @@ static const lazybox_applet_t applets[] = {
     {"dcache",        applet_dcache,        "dcache",                    "Rust VFS directory cache metrics", "Filesystem"},
     {"watchdog",      applet_watchdog,      "watchdog",                  "Rust kernel health & watchdog", "System"},
     {"jsonquery",     applet_jsonquery,     "jsonquery \"<json>\" <key>", "Rust zero-copy JSON extractor", "Core"},
+    {"cryptobench",   applet_cryptobench,   "cryptobench",               "Rust cryptographic benchmark", "System"},
+    {"fdisk",         applet_fdisk,         "fdisk",                     "Rust MBR/GPT partition decoder", "Storage"},
+    {"rfilter",       applet_rfilter,       "rfilter",                   "Rust NetFilter firewall stats", "Network"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

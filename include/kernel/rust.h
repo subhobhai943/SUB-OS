@@ -20,16 +20,52 @@ typedef struct {
     uint32_t subsystem_mask;
 } __attribute__((packed)) rust_health_report_t;
 
-// PCI Info
+// Decoded Partition Structure
 typedef struct {
-    uint8_t bus;
-    uint8_t slot;
-    uint8_t func;
-    uint16_t vendor_id;
-    uint16_t device_id;
-    uint8_t class_id;
-    uint8_t subclass_id;
-} __attribute__((packed)) rust_pci_info_t;
+    uint32_t partition_number;
+    bool is_bootable;
+    bool is_gpt;
+    uint8_t partition_type_id;
+    uint64_t start_lba;
+    uint64_t sector_count;
+    uint64_t size_mb;
+    char name[36];
+} rust_decoded_partition_t;
+
+// Crypto Benchmark Result
+typedef struct {
+    uint32_t chacha20_mbs;
+    uint32_t sha3_256_mbs;
+    uint32_t aes128_mbs;
+    uint32_t score;
+} rust_crypto_bench_result_t;
+
+// Network Filter Rule
+typedef struct {
+    bool enabled;
+    uint8_t protocol;
+    uint32_t src_ip;
+    uint32_t src_mask;
+    uint32_t dst_ip;
+    uint32_t dst_mask;
+    uint16_t src_port_start;
+    uint16_t src_port_end;
+    uint16_t dst_port_start;
+    uint16_t dst_port_end;
+    uint8_t action;
+    uint64_t packet_count;
+    uint64_t byte_count;
+} rust_filter_rule_t;
+
+// Network Packet Header
+typedef struct {
+    uint8_t protocol;
+    uint32_t src_ip;
+    uint32_t dst_ip;
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint32_t length;
+} rust_packet_header_t;
 
 // Kernel Core
 int rust_kernel_init(void);
@@ -40,11 +76,20 @@ int rust_chacha20_crypt(const uint8_t* key, const uint8_t* nonce, uint32_t count
 int rust_csprng_get_random(uint8_t* buffer, size_t len);
 int rust_sha3_256(const uint8_t* data, size_t len, uint8_t* out);
 int rust_aes128_ecb_encrypt(const uint8_t* key, uint8_t* block);
+int rust_crypto_run_benchmark(rust_crypto_bench_result_t* out_result);
 
 // Hardware & Drivers
 rust_thermal_report_t rust_sensor_calc_fan_curve(int32_t temp_celsius);
 const char* rust_pci_get_vendor_name(uint16_t vendor_id);
 const char* rust_pci_get_class_name(uint8_t class_id, uint8_t subclass_id);
+
+// Storage & Partitions
+int rust_storage_decode_mbr(const uint8_t* sector_512, rust_decoded_partition_t* out_partitions, size_t max_count);
+
+// Network Filter
+uint8_t rust_filter_evaluate(const rust_packet_header_t* pkt);
+int rust_filter_add_rule(const rust_filter_rule_t* rule);
+void rust_filter_get_stats(uint64_t* out_processed, uint64_t* out_blocked, size_t* out_rule_count);
 
 // VFS Directory Cache (dcache)
 int rust_dcache_lookup(const uint8_t* path, size_t len, uint64_t* out_inode, bool* out_is_dir);
