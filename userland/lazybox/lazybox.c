@@ -28,9 +28,7 @@
 #include <ipc/ipc.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
-#include <arch/x86_64/pit.h>
-#include <arch/x86_64/cpuid.h>
-#include <arch/x86_64/io.h>
+#include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
 #include <lib/printf.h>
@@ -662,7 +660,7 @@ static int applet_mouse(int argc, char** argv) {
 
 static int applet_uname(int argc, char** argv) {
     if (argc >= 2 && strcmp(argv[1], "-a") == 0) {
-        printk("SUB-OS sub-node %s #1 SMP PREEMPT Sun Aug 16 2026 x86_64 GNU/LazyBox\n", kernel_get_version());
+        printk("SUB-OS sub-node %s #1 SMP PREEMPT 2026 %s GNU/LazyBox\n", kernel_get_version(), arch_get_name());
     } else {
         printk("SUB-OS\n");
     }

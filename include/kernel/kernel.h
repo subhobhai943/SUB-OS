@@ -3,7 +3,7 @@
 
 #include "types.h"
 #include "printk.h"
-#include <arch/x86_64/io.h>
+#include <arch/arch.h>
 
 #define KERNEL_NAME        "SUB-OS"
 #define KERNEL_VERSION     "0.2.0-lts"

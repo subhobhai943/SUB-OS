@@ -49,18 +49,38 @@ void pmm_init(void* memory_map, uint64_t memory_map_count) {
 
     // Fallback if no E820 usable regions
     if (usable_memory_bytes == 0 || total_pages == 0) {
+#if defined(__aarch64__)
+        uint64_t dram_start = 0x40000000;
+        uint64_t dram_size  = 128ULL * 1024 * 1024;
+        uint64_t start_page = dram_start / PMM_PAGE_SIZE;
+        uint64_t count_pages = dram_size / PMM_PAGE_SIZE;
+
+        total_pages = start_page + count_pages;
+        total_memory_bytes = dram_size;
+        usable_memory_bytes = dram_size;
+
+        for (uint64_t p = 0; p < count_pages; p++) {
+            bitmap_clear(page_bitmap, start_page + p);
+        }
+
+        // Reserve kernel & boot area (0x40000000 - 0x40800000: 8MB / 2048 pages)
+        for (uint64_t p = start_page; p < start_page + 2048; p++) {
+            bitmap_set(page_bitmap, p);
+        }
+#else
         total_pages = 32768; // 128 MB
         total_memory_bytes = 128ULL * 1024 * 1024;
         usable_memory_bytes = 128ULL * 1024 * 1024;
         for (uint64_t p = 0; p < total_pages; p++) {
             bitmap_clear(page_bitmap, p);
         }
-    }
 
-    // Reserve lower 4 MB (bootloader, page tables, kernel image)
-    size_t kernel_reserved_pages = (4 * 1024 * 1024) / PMM_PAGE_SIZE; // 1024 pages
-    for (size_t p = 0; p < kernel_reserved_pages; p++) {
-        bitmap_set(page_bitmap, p);
+        // Reserve lower 4 MB (bootloader, page tables, kernel image)
+        size_t kernel_reserved_pages = (4 * 1024 * 1024) / PMM_PAGE_SIZE; // 1024 pages
+        for (size_t p = 0; p < kernel_reserved_pages; p++) {
+            bitmap_set(page_bitmap, p);
+        }
+#endif
     }
 
     // Count actual used pages (bits set in bitmap up to total_pages)

@@ -1,10 +1,10 @@
 #include <kernel/panic.h>
 #include <kernel/printk.h>
 #include <drivers/tty.h>
-#include <arch/x86_64/io.h>
+#include <arch/arch.h>
 
 void panic_with_regs(const char* message, const registers_t* regs) {
-    cli();
+    arch_disable_interrupts();
 
     printk("\n" ANSI_BRIGHT_RED "================================================================================" ANSI_RESET "\n");
     printk(ANSI_BRIGHT_RED "                     *** KERNEL PANIC - SYSTEM HALTED ***                      " ANSI_RESET "\n");
@@ -12,7 +12,7 @@ void panic_with_regs(const char* message, const registers_t* regs) {
     printk(ANSI_BRIGHT_WHITE "Reason: " ANSI_YELLOW "%s" ANSI_RESET "\n\n", message ? message : "Unknown Fault");
 
     if (regs) {
-        printk(ANSI_BRIGHT_CYAN "CPU Register State (x86_64 AMD64 ABI):" ANSI_RESET "\n");
+        printk(ANSI_BRIGHT_CYAN "CPU Register State:" ANSI_RESET "\n");
         printk("  RIP: %016llx  CS:  %04llx  RFLAGS: %016llx\n", regs->rip, regs->cs, regs->rflags);
         printk("  RSP: %016llx  SS:  %04llx  RBP:    %016llx\n", regs->rsp, regs->ss, regs->rbp);
         printk("  RAX: %016llx  RBX: %016llx  RCX:    %016llx  RDX: %016llx\n", regs->rax, regs->rbx, regs->rcx, regs->rdx);
@@ -24,7 +24,7 @@ void panic_with_regs(const char* message, const registers_t* regs) {
     printk("\n" ANSI_BRIGHT_YELLOW "Please power off or reset your system." ANSI_RESET "\n");
 
     while (1) {
-        hlt();
+        arch_halt();
     }
 }
 

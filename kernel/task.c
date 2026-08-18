@@ -2,6 +2,7 @@
 #include <kernel/sched.h>
 #include <mm/kmalloc.h>
 #include <lib/string.h>
+#include <arch/arch.h>
 
 static pid_t next_pid = 1;
 static task_t* current_task = NULL;
@@ -55,7 +56,7 @@ void task_exit(int exit_code) {
         sched_yield();
     }
     while (1) {
-        __asm__ volatile("hlt");
+        arch_halt();
     }
 }
 

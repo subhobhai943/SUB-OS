@@ -4,9 +4,7 @@
 #include <drivers/tty.h>
 #include <drivers/keyboard.h>
 #include <drivers/speaker.h>
-#include <arch/x86_64/pit.h>
-#include <arch/x86_64/cpuid.h>
-#include <arch/x86_64/io.h>
+#include <arch/arch.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <kernel/printk.h>
@@ -101,13 +99,17 @@ static void cmd_neofetch(void) {
     secs %= 60;
     mins %= 60;
 
-    const cpu_info_t* cpu = cpuid_get_info();
-
     printk("\n");
     printk(ANSI_BRIGHT_CYAN "   _____ _    _ ____     " ANSI_BRIGHT_GREEN  "OS:      " ANSI_RESET "SUB-OS v0.2.0-lts (Modular Monolithic)\n");
-    printk(ANSI_BRIGHT_CYAN "  / ____| |  | |  _ \\    " ANSI_BRIGHT_GREEN  "Arch:    " ANSI_RESET "x86_64 (64-Bit Long Mode)\n");
+    printk(ANSI_BRIGHT_CYAN "  / ____| |  | |  _ \\    " ANSI_BRIGHT_GREEN  "Arch:    " ANSI_RESET "%s\n", arch_get_name());
     printk(ANSI_BRIGHT_CYAN " | (___ | |  | | |_) |   " ANSI_BRIGHT_GREEN  "Kernel:  " ANSI_RESET "Modular Drivers + VFS + Crypto + Net\n");
+#if defined(__x86_64__)
+    const cpu_info_t* cpu = cpuid_get_info();
     printk(ANSI_BRIGHT_CYAN "  \\___ \\| |  | |  _ <    " ANSI_BRIGHT_GREEN  "CPU:     " ANSI_RESET "%s (%s)\n", cpu->model, cpu->vendor);
+#elif defined(__aarch64__)
+    const aarch64_cpu_info_t* cpu = aarch64_get_cpu_info();
+    printk(ANSI_BRIGHT_CYAN "  \\___ \\| |  | |  _ <    " ANSI_BRIGHT_GREEN  "CPU:     " ANSI_RESET "%s (EL%u)\n", cpu->model_name, cpu->current_el);
+#endif
     printk(ANSI_BRIGHT_CYAN "  ____) | |__| | |_) |   " ANSI_BRIGHT_GREEN  "Memory:  " ANSI_RESET "%llu MB / %llu MB (Free: %llu MB)\n", used_mb, total_mb, (free * 4096) / (1024 * 1024));
     printk(ANSI_BRIGHT_CYAN " |_____/ \\____/|____/    " ANSI_BRIGHT_GREEN  "Heap:    " ANSI_RESET "%llu KB used / %llu KB total\n", heap_get_used_bytes() / 1024, (heap_get_used_bytes() + heap_get_free_bytes()) / 1024);
     printk(ANSI_BRIGHT_CYAN "                         " ANSI_BRIGHT_GREEN  "Uptime:  " ANSI_RESET "%02llu:%02llu:%02llu\n", hours, mins, secs);

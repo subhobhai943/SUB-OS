@@ -8,3 +8,4 @@ build/
 *.tmp
 .DS_Store
 .system_generated/
+.config

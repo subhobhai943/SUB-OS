@@ -17,13 +17,7 @@
 #include <mm/vma.h>
 #include <drivers/canvas.h>
 #include <drivers/pty.h>
-#include <arch/x86_64/gdt.h>
-#include <arch/x86_64/idt.h>
-#include <arch/x86_64/isr.h>
-#include <arch/x86_64/pic.h>
-#include <arch/x86_64/pit.h>
-#include <arch/x86_64/cpuid.h>
-#include <arch/x86_64/paging.h>
+#include <arch/arch.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <mm/slab.h>
@@ -81,83 +75,41 @@
 #include <userland/sh.h>
 #include <userland/shell.h>
 
-void kernel_main(void* memory_map, uint64_t memory_map_count) {
-    // 1. Console & Telemetry
-    tty_init();
-    serial_init();
-    printk_init();
-
-    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
-    printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit Production Modular Monolithic Kernel %s\n" ANSI_RESET, kernel_get_version());
-    printk(ANSI_BRIGHT_CYAN "=================================================================\n\n" ANSI_RESET);
-
-    // 2. Early Boot Parameters & RTC Real-Time Clock
-    init_early("root=/dev/sda console=tty1 init=/bin/lazybox quiet");
-    rtc_init();
-
-    // 3. CPU Architecture & Interrupts
-    printk(KERN_INFO "[1/18] Initializing 64-Bit GDT & TSS... ");
-    gdt_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    printk(KERN_INFO "[2/18] Initializing Interrupt Descriptor Table (IDT & ISRs)... ");
-    idt_init();
-    isr_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    printk(KERN_INFO "[3/18] Remapping Dual 8259A PIC Controller... ");
-    pic_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    printk(KERN_INFO "[4/18] Configuring 8254 PIT Timer & High-Res Timer Wheel... ");
-    pit_init(100);
-    timer_wheel_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    // 4. Input & Power Drivers
-    printk(KERN_INFO "[5/18] Initializing PS/2 Keyboard, Mouse & ACPI... ");
-    keyboard_init();
-    mouse_init();
-    acpi_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    // 5. Memory Management: PMM + Dynamic Heap + SLAB Cache
-    printk(KERN_INFO "[6/18] Initializing Physical PMM, Dynamic Heap & SLAB Cache... ");
-    pmm_init(memory_map, memory_map_count);
-    heap_init();
-    slab_init();
-    vma_init();
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
-    // 6. Storage & Block Layer
-    printk(KERN_INFO "[7/18] Initializing Block Layer, Ramdisk & Storage Controllers... ");
+static void subos_modular_core_boot(void) {
+    // Storage & Block Layer
+    printk(KERN_INFO "[4/14] Initializing Block Layer & Storage Controllers... ");
     block_init();
     ramdisk_init();
+#if defined(__x86_64__)
     ata_init();
     ahci_init();
     nvme_init();
+#endif
     virtio_blk_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 7. Bus & Devices
-    printk(KERN_INFO "[8/18] Enumerating PCI Bus, VirtIO, xHCI, VBE, Canvas & PTY... ");
+    // Bus & Devices
+    printk(KERN_INFO "[5/14] Enumerating System Devices, Canvas & PTY... ");
+#if defined(__x86_64__)
     pci_init();
     virt_init();
     fb_init();
     bochs_vbe_init();
-    canvas_init();
-    pty_init();
     usb_init();
     xhci_init();
-    virtio_rng_init();
     hwmon_init();
+#endif
+    canvas_init();
+    pty_init();
+    virtio_rng_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 7. Network Subsystem, NetFilter, HTTPD & SSH Server
-    printk(KERN_INFO "[9/18] Initializing Network Stack, NetFilter, HTTPD & SSHD... ");
+    // Network Subsystem, NetFilter, HTTPD & SSH Server
+    printk(KERN_INFO "[6/14] Initializing Network Stack, NetFilter, HTTPD & SSHD... ");
     filter_init();
     httpd_init();
     sshd_init();
+#if defined(__x86_64__)
     rtl8139_init();
     virtio_net_init();
     if (e1000_init()) {
@@ -171,16 +123,22 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     } else {
         printk(ANSI_YELLOW "No NIC detected\n" ANSI_RESET);
     }
+#else
+    virtio_net_init();
+    printk(ANSI_BRIGHT_GREEN "Online\n" ANSI_RESET);
+#endif
 
-    // 8. Sound & Voice Synthesizer
-    printk(KERN_INFO "[10/18] Initializing Sound Architecture, Melody Player & Formant TTS... ");
+    // Sound & Voice Synthesizer
+#if defined(__x86_64__)
+    printk(KERN_INFO "[7/14] Initializing Sound Architecture, Melody Player & Formant TTS... ");
     sound_init();
     hda_init();
     melody_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+#endif
 
-    // 9. Crypto, Certificates, LSM Security, Authentication & Namespaces
-    printk(KERN_INFO "[11/18] Initializing X.509 Keyring, Shadow Auth & Namespaces... ");
+    // Crypto, Certificates, LSM Security, Authentication & Namespaces
+    printk(KERN_INFO "[8/14] Initializing X.509 Keyring, Shadow Auth & Namespaces... ");
     prng_seed(0, 0);
     certs_init();
     security_init();
@@ -188,18 +146,18 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     namespace_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 10. Inter-Process Communication
-    printk(KERN_INFO "[12/18] Initializing IPC Engine (Pipes, MsgQueues, SHM, Semaphores)... ");
+    // Inter-Process Communication
+    printk(KERN_INFO "[9/14] Initializing IPC Engine (Pipes, MsgQueues, SHM, Semaphores)... ");
     ipc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 11. Asynchronous I/O Engine
-    printk(KERN_INFO "[13/18] Initializing io_uring Async Ring Engine... ");
+    // Asynchronous I/O Engine
+    printk(KERN_INFO "[10/14] Initializing io_uring Async Ring Engine... ");
     io_uring_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 12. Virtual File System & Multi-Filesystem Support
-    printk(KERN_INFO "[14/18] Mounting Virtual File System (VFS, devfs, procfs, sysfs)... ");
+    // Virtual File System & Multi-Filesystem Support
+    printk(KERN_INFO "[11/14] Mounting Virtual File System (VFS, devfs, procfs, sysfs)... ");
     vfs_init();
     sysfs_init();
     kobject_subsystem_init();
@@ -208,8 +166,8 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     initramfs_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 13. Kernel Core: Signals, Modules, Syscalls, Tracing, Syslog, Metrics, Crond & Systemd
-    printk(KERN_INFO "[15/18] Initializing Syslog, Metrics, Cron, Tracing, BPF & Services... ");
+    // Kernel Core: Signals, Modules, Syscalls, Tracing, Syslog, Metrics, Crond & Systemd
+    printk(KERN_INFO "[12/14] Initializing Syslog, Metrics, Cron, Tracing, BPF & Services... ");
     signal_init();
     workqueue_init();
     syscall_init();
@@ -222,25 +180,82 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     service_manager_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 14. Preemptive Multi-Tasking & Userland
-    printk(KERN_INFO "[16/18] Initializing Preemptive Task Scheduler & LazyBox... ");
+    // Preemptive Multi-Tasking & Userland
+    printk(KERN_INFO "[13/14] Initializing Preemptive Task Scheduler & LazyBox... ");
     sched_init();
     lazybox_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // 15. Hardware Interrupts
-    printk(KERN_INFO "[17/18] Enabling Hardware Interrupts... ");
-    sti();
+    // Hardware Interrupts
+    printk(KERN_INFO "[14/14] Enabling Hardware Interrupts... ");
+    arch_enable_interrupts();
     printk(ANSI_BRIGHT_GREEN "ACTIVE\n" ANSI_RESET);
 
-    // 16. Welcome & Launch Shell
-    printk(KERN_INFO "[18/18] Launching Userland Shell on TTY1... ");
-    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
-
+    // Launch Shell
+#if defined(__x86_64__)
     tty_clear();
+#endif
     shell_run();
 
     while (1) {
-        hlt();
+        arch_halt();
     }
 }
+
+#if defined(__x86_64__)
+void kernel_main(void* memory_map, uint64_t memory_map_count) {
+    tty_init();
+    serial_init();
+    printk_init();
+
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n\n" ANSI_RESET);
+
+    init_early("root=/dev/sda console=tty1 init=/bin/lazybox quiet");
+    rtc_init();
+
+    printk(KERN_INFO "[1/14] Initializing 64-Bit GDT, IDT, PIC & PIT Timer... ");
+    arch_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    printk(KERN_INFO "[2/14] Initializing PS/2 Keyboard, Mouse & ACPI... ");
+    keyboard_init();
+    mouse_init();
+    acpi_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    printk(KERN_INFO "[3/14] Initializing Physical PMM, Dynamic Heap & SLAB Cache... ");
+    pmm_init(memory_map, memory_map_count);
+    heap_init();
+    slab_init();
+    vma_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    subos_modular_core_boot();
+}
+#elif defined(__aarch64__)
+void kernel_main_aarch64(void) {
+    arch_early_init();
+    printk_init();
+
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
+    printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());
+    printk(ANSI_BRIGHT_CYAN "=================================================================\n\n" ANSI_RESET);
+
+    init_early("root=/dev/vda console=ttyAMA0 init=/bin/lazybox quiet");
+
+    printk(KERN_INFO "[1/14] Initializing AArch64 CPU, GICv2, Generic Timer & MMU... ");
+    arch_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    printk(KERN_INFO "[2/14] Initializing Physical PMM, Dynamic Heap & SLAB Cache... ");
+    pmm_init(NULL, 0);
+    heap_init();
+    slab_init();
+    vma_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
+    subos_modular_core_boot();
+}
+#endif

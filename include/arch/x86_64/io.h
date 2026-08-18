@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#if defined(__x86_64__)
+
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
@@ -48,5 +50,21 @@ static inline void sti(void) {
 static inline void hlt(void) {
     __asm__ volatile ("hlt");
 }
+
+#else
+
+// Portable Stubs for non-x86 architectures
+static inline void outb(uint16_t port, uint8_t val) { (void)port; (void)val; }
+static inline uint8_t inb(uint16_t port) { (void)port; return 0; }
+static inline void outw(uint16_t port, uint16_t val) { (void)port; (void)val; }
+static inline uint16_t inw(uint16_t port) { (void)port; return 0; }
+static inline void outl(uint16_t port, uint32_t val) { (void)port; (void)val; }
+static inline uint32_t inl(uint16_t port) { (void)port; return 0; }
+static inline void io_wait(void) { }
+static inline void cli(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
+static inline void sti(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
+static inline void hlt(void) { __asm__ volatile("wfi"); }
+
+#endif
 
 #endif // _ARCH_X86_64_IO_H

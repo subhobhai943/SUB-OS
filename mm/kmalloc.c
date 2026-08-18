@@ -5,7 +5,7 @@
 #include <kernel/printk.h>
 
 #define HEAP_MAGIC 0x53554248 // "SUBH"
-#define HEAP_INITIAL_PAGES 1024 // 4 MB initial kernel heap
+#define HEAP_INITIAL_PAGES 4096 // 16 MB initial kernel heap
 
 typedef struct heap_block {
     uint32_t magic;

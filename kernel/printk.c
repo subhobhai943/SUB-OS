@@ -45,10 +45,17 @@ int vprintk(const char* fmt, va_list args) {
     // 1. Output to active TTY console
     tty_write(display_ptr, (size_t)len);
 
-    // 2. Output to COM1 serial port for host debugging
+    // 2. Output to serial console (COM1 on x86, PL011 on AArch64)
+#if defined(__aarch64__)
+    extern void uart_pl011_putc(char c);
+    for (int i = 0; i < len; i++) {
+        uart_pl011_putc(display_ptr[i]);
+    }
+#else
     for (int i = 0; i < len; i++) {
         serial_write_char(display_ptr[i]);
     }
+#endif
 
     // 3. Store in kernel dmesg ring buffer
     dmesg_append(display_ptr, (size_t)len);

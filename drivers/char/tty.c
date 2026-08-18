@@ -12,16 +12,17 @@ typedef struct {
 static tty_t ttys[MAX_TTYS];
 static int current_tty = 0;
 
-static volatile uint16_t* const VGA_MEM = (uint16_t*)VGA_MEMORY;
-
 static void tty_render_current(void) {
+#if defined(__x86_64__)
+    volatile uint16_t* const vga_mem = (uint16_t*)VGA_MEMORY;
     tty_t* t = &ttys[current_tty];
     for (int y = 0; y < TTY_HEIGHT; y++) {
         for (int x = 0; x < TTY_WIDTH; x++) {
-            VGA_MEM[y * TTY_WIDTH + x] = t->buffer[y][x];
+            vga_mem[y * TTY_WIDTH + x] = t->buffer[y][x];
         }
     }
     vga_set_cursor(t->cursor_row, t->cursor_col);
+#endif
 }
 
 void tty_switch(int index) {
@@ -62,7 +63,9 @@ void tty_set_cursor(int row, int col) {
     tty_t* t = &ttys[current_tty];
     t->cursor_row = row;
     t->cursor_col = col;
+#if defined(__x86_64__)
     vga_set_cursor(row, col);
+#endif
 }
 
 void tty_write(const char* data, size_t size) {
@@ -150,7 +153,9 @@ void tty_write_string(const char* data) {
 }
 
 void tty_init(void) {
+#if defined(__x86_64__)
     vga_init();
+#endif
     for (int i = 0; i < MAX_TTYS; i++) {
         ttys[i].cursor_row = 0;
         ttys[i].cursor_col = 0;

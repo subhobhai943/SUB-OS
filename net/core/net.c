@@ -5,7 +5,7 @@
 #include <lib/string.h>
 #include <lib/printf.h>
 #include <mm/kmalloc.h>
-#include <arch/x86_64/pit.h>
+#include <arch/arch.h>
 #include <kernel/printk.h>
 
 #define MAX_ARP_ENTRIES 16
@@ -288,7 +288,7 @@ int net_ping(uint32_t target_ip, uint32_t count, uint32_t timeout_ms) {
         if (wait_ticks == 0) wait_ticks = 100;
 
         while (!ping_received && (pit_get_ticks() - t_start < wait_ticks)) {
-            __asm__ volatile ("hlt");
+            arch_halt();
         }
 
         if (ping_received && ping_id == p_id && ping_seq == seq) {

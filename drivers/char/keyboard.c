@@ -1,8 +1,6 @@
 #include <drivers/keyboard.h>
 #include <drivers/tty.h>
-#include <arch/x86_64/isr.h>
-#include <arch/x86_64/pic.h>
-#include <arch/x86_64/io.h>
+#include <arch/arch.h>
 
 #define KEYBOARD_DATA_PORT    0x60
 #define KEYBOARD_STATUS_PORT  0x64
@@ -44,6 +42,7 @@ static void buffer_enqueue(uint16_t key) {
     }
 }
 
+#if defined(__x86_64__)
 static void keyboard_interrupt_handler(registers_t* regs) {
     (void)regs;
     uint8_t scancode = inb(KEYBOARD_DATA_PORT);
@@ -112,23 +111,40 @@ static void keyboard_interrupt_handler(registers_t* regs) {
         buffer_enqueue((uint16_t)c);
     }
 }
+#endif
 
 void keyboard_init(void) {
     buffer_head = 0;
     buffer_tail = 0;
 
+#if defined(__x86_64__)
     isr_register_handler(33, keyboard_interrupt_handler); // IRQ1
     pic_clear_mask(1);
+#endif
 }
 
+#if defined(__aarch64__)
+#include <arch/aarch64/uart.h>
+#endif
+
 bool keyboard_has_key(void) {
+#if defined(__aarch64__)
+    if (uart_pl011_has_data()) return true;
+#endif
     return buffer_head != buffer_tail;
 }
 
 uint16_t keyboard_get_key(void) {
     while (!keyboard_has_key()) {
-        hlt();
+        arch_halt();
     }
+#if defined(__aarch64__)
+    if (uart_pl011_has_data()) {
+        char c = uart_pl011_getc();
+        if (c == '\r') c = '\n';
+        return (uint16_t)(uint8_t)c;
+    }
+#endif
     uint16_t key = key_buffer[buffer_tail];
     buffer_tail = (buffer_tail + 1) % KEYBOARD_BUFFER_SIZE;
     return key;
