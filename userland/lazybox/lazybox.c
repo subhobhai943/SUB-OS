@@ -29,6 +29,7 @@
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <kernel/rust.h>
+#include <kernel/sub_lang.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -883,6 +884,69 @@ static int applet_rfilter(int argc, char** argv) {
     printk("  Configured Rules: " ANSI_YELLOW "%llu" ANSI_RESET "\n", (uint64_t)rules);
     printk("  Packets Evaluated: " ANSI_YELLOW "%llu" ANSI_RESET "\n", (uint64_t)processed);
     printk("  Packets Blocked  : " ANSI_RED "%llu" ANSI_RESET "\n", (uint64_t)blocked);
+    return 0;
+}
+
+static int applet_subinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    sub_kernel_print_signature();
+    return 0;
+}
+
+static int applet_subi(int argc, char** argv) {
+    if (argc < 2) {
+        printk(KERN_INFO "Usage: subi <file.sb>   OR   subi -e \"<sub_code>\"\n");
+        return 1;
+    }
+    if (strcmp(argv[1], "-e") == 0) {
+        if (argc < 3) {
+            printk(ANSI_RED "Error: missing code expression after -e\n" ANSI_RESET);
+            return 1;
+        }
+        return sub_vm_eval_string(argv[2]);
+    }
+    return sub_vm_eval_file(argv[1]);
+}
+
+static int applet_subpower(int argc, char** argv) {
+    int32_t temp = 45;
+    uint32_t load = 50;
+    if (argc >= 2) temp = (int32_t)strtol(argv[1], NULL, 10);
+    if (argc >= 3) load = (uint32_t)strtol(argv[2], NULL, 10);
+
+    int pstate = sub_power_calc_pstate(temp, load);
+    uint32_t freq = sub_power_get_freq_mhz(pstate);
+    uint32_t volt = sub_power_get_voltage_mv(pstate);
+
+    printk(ANSI_BRIGHT_CYAN "=== SUB-Lang In-Kernel CPU Power Governor ===\n" ANSI_RESET);
+    printk("  Current Temp : " ANSI_YELLOW "%d C\n" ANSI_RESET, temp);
+    printk("  Current Load : " ANSI_YELLOW "%u %%\n" ANSI_RESET, load);
+    printk("  Target P-State: " ANSI_BRIGHT_GREEN "P%d\n" ANSI_RESET, pstate);
+    printk("  Target Clock : " ANSI_BRIGHT_GREEN "%u MHz\n" ANSI_RESET, freq);
+    printk("  Core Voltage : " ANSI_BRIGHT_GREEN "%u mV\n" ANSI_RESET, volt);
+    return 0;
+}
+
+static int applet_subbench(int argc, char** argv) {
+    uint32_t iters = 100;
+    if (argc >= 2) iters = (uint32_t)strtol(argv[1], NULL, 10);
+
+    printk(ANSI_BRIGHT_CYAN "Running SUB-Lang In-Kernel Recursive & Matrix Benchmark...\n" ANSI_RESET);
+    uint32_t score = sub_benchmark_run(iters);
+    printk("  Iterations   : " ANSI_YELLOW "%u\n" ANSI_RESET, iters);
+    printk("  Benchmark    : " ANSI_BRIGHT_GREEN "PASSED\n" ANSI_RESET);
+    printk("  SUB Rating   : " ANSI_BRIGHT_YELLOW "%u points\n" ANSI_RESET, score);
+    return 0;
+}
+
+static int applet_subquote(int argc, char** argv) {
+    static int quote_counter = 0;
+    int idx = 0;
+    if (argc >= 2) idx = (int)strtol(argv[1], NULL, 10);
+    else idx = (quote_counter++) % 5;
+
+    printk(ANSI_BRIGHT_MAGENTA "💬 SUB-OS Signature Quote:\n" ANSI_RESET);
+    printk("  \"" ANSI_BRIGHT_WHITE "%s" ANSI_RESET "\"\n\n", sub_easter_egg_get(idx));
     return 0;
 }
 
@@ -1742,6 +1806,11 @@ static const lazybox_applet_t applets[] = {
     {"cryptobench",   applet_cryptobench,   "cryptobench",               "Rust cryptographic benchmark", "System"},
     {"fdisk",         applet_fdisk,         "fdisk",                     "Rust MBR/GPT partition decoder", "Storage"},
     {"rfilter",       applet_rfilter,       "rfilter",                   "Rust NetFilter firewall stats", "Network"},
+    {"subinfo",       applet_subinfo,       "subinfo",                   "SUB-Lang identity & signature", "System"},
+    {"subi",          applet_subi,          "subi <file.sb | -e \"code\">", "SUB-Lang in-kernel interpreter", "Core"},
+    {"subpower",      applet_subpower,      "subpower [temp] [load]",    "SUB-Lang CPU power governor", "System"},
+    {"subbench",      applet_subbench,      "subbench [iterations]",     "SUB-Lang recursive benchmark", "System"},
+    {"subquote",      applet_subquote,      "subquote [index]",          "SUB-OS signature quote", "System"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

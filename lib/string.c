@@ -228,3 +228,37 @@ int atoi(const char* str) {
     }
     return res * sign;
 }
+
+long strtol(const char* str, char** endptr, int base) {
+    if (!str) return 0;
+    while (*str == ' ' || *str == '\t') str++;
+    int sign = 1;
+    if (*str == '-') { sign = -1; str++; }
+    else if (*str == '+') { str++; }
+
+    if (base == 0) {
+        if (*str == '0' && (*(str+1) == 'x' || *(str+1) == 'X')) {
+            base = 16;
+            str += 2;
+        } else if (*str == '0') {
+            base = 8;
+        } else {
+            base = 10;
+        }
+    } else if (base == 16 && *str == '0' && (*(str+1) == 'x' || *(str+1) == 'X')) {
+        str += 2;
+    }
+
+    long result = 0;
+    while (*str) {
+        int val = -1;
+        if (*str >= '0' && *str <= '9') val = *str - '0';
+        else if (*str >= 'a' && *str <= 'z') val = *str - 'a' + 10;
+        else if (*str >= 'A' && *str <= 'Z') val = *str - 'A' + 10;
+        if (val < 0 || val >= base) break;
+        result = result * base + val;
+        str++;
+    }
+    if (endptr) *endptr = (char*)str;
+    return result * sign;
+}

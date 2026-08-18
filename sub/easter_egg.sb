@@ -1,0 +1,18 @@
+// Interactive Easter Eggs & SUB Kernel Quotes
+// Written in SUB Language (.sb) - Simple Universal Builder
+
+function get_easter_egg(idx) {
+    if idx == 0 {
+        return "SUB-OS: Where C, Assembly, Rust, and SUB-Lang converge."
+    }
+    if idx == 1 {
+        return "Simple Universal Builder: One language to build them all."
+    }
+    if idx == 2 {
+        return "Born from bare-metal, forged in code."
+    }
+    if idx == 3 {
+        return "Memory safety with Rust, native power with C, custom signature with SUB-Lang!"
+    }
+    return "Antigravity + Subhobhai = Infinite Operating System Possibilities."
+}

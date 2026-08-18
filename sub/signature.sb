@@ -1,0 +1,23 @@
+// SUB-OS Kernel Signature & Identity Module
+// Written in SUB Language (.sb) - Simple Universal Builder
+
+function get_os_signature() {
+    return "SUB-OS Modular Monolithic Kernel (Engineered with C, Assembly, Rust & SUB-Lang)"
+}
+
+function get_sub_lang_version() {
+    return "SUB-Lang v2.0.0 (Simple Universal Builder)"
+}
+
+function get_author_credits() {
+    return "Designed & Created by Subhobhai & Antigravity (2026)"
+}
+
+function print_sub_kernel_banner() {
+    print("=================================================================")
+    print("   SUB-OS Kernel Signature Module (Powered by SUB-Lang v2.0)")
+    print("=================================================================")
+    print("  Engine : Simple Universal Builder (Native Compiled & Interpreted)")
+    print("  Identity: Multi-Paradigm Native Kernel Extension")
+    print("  Status : Active & Online")
+}

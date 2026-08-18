@@ -12,7 +12,6 @@ pub struct KernelHealthReport {
 pub struct Watchdog {
     heartbeats: u64,
     subsystems_online: u32,
-    last_tick: u64,
 }
 
 impl Watchdog {
@@ -20,7 +19,6 @@ impl Watchdog {
         Self {
             heartbeats: 0,
             subsystems_online: 0,
-            last_tick: 0,
         }
     }
 

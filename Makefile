@@ -124,7 +124,7 @@ endif
 CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/printk.c \
             kernel/panic.c kernel/trace.c kernel/sched.c kernel/cron.c kernel/syscall.c \
             kernel/syslog.c kernel/module.c kernel/kobject.c kernel/metrics.c kernel/namespace.c \
-            kernel/signal.c kernel/workqueue.c \
+            kernel/signal.c kernel/workqueue.c kernel/sub/sub_runtime.c kernel/sub/sub_vm.c \
             lib/string.c lib/vsprintf.c lib/bitmap.c \
             init/cmdline.c init/service.c usr/initramfs.c block/block.c block/elevator.c \
             ipc/sem.c ipc/shm.c ipc/pipe.c ipc/ipc.c ipc/msg.c \

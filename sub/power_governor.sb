@@ -1,0 +1,64 @@
+// CPU Power Governor & Thermal Scaling Engine
+// Written in SUB Language (.sb) - Simple Universal Builder
+
+function calc_pstate(temp_celsius, cpu_load_pct) {
+    // P0: Maximum Performance (Turbo Frequency)
+    // P1: High Performance
+    // P2: Balanced Efficiency
+    // P3: Low Power Throttle
+    // P4: Emergency Thermal Cooldown
+
+    if temp_celsius >= 90 {
+        return 4 // P4: Emergency throttle
+    }
+    if temp_celsius >= 75 {
+        if cpu_load_pct > 80 {
+            return 2 // P2: Balanced
+        } else {
+            return 3 // P3: Thermal throttle
+        }
+    }
+    if temp_celsius >= 60 {
+        if cpu_load_pct > 60 {
+            return 1 // P1: High Performance
+        } else {
+            return 2 // P2: Balanced
+        }
+    }
+    if cpu_load_pct >= 40 {
+        return 0 // P0: Turbo Performance
+    }
+    return 1 // P1: Standard Idle/Low-load
+}
+
+function get_pstate_target_freq_mhz(pstate) {
+    if pstate == 0 {
+        return 3800 // 3.8 GHz Turbo
+    }
+    if pstate == 1 {
+        return 3200 // 3.2 GHz High
+    }
+    if pstate == 2 {
+        return 2400 // 2.4 GHz Balanced
+    }
+    if pstate == 3 {
+        return 1600 // 1.6 GHz Low
+    }
+    return 800 // 800 MHz Emergency Throttle
+}
+
+function get_pstate_voltage_mv(pstate) {
+    if pstate == 0 {
+        return 1250 // 1.25V
+    }
+    if pstate == 1 {
+        return 1150 // 1.15V
+    }
+    if pstate == 2 {
+        return 1050 // 1.05V
+    }
+    if pstate == 3 {
+        return 950  // 0.95V
+    }
+    return 850  // 0.85V
+}
