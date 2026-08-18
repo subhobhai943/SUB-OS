@@ -76,6 +76,10 @@
 #include <userland/shell.h>
 
 static void subos_modular_core_boot(void) {
+#if defined(__x86_64__)
+    pci_init();
+#endif
+
     // Storage & Block Layer
     printk(KERN_INFO "[4/14] Initializing Block Layer & Storage Controllers... ");
     block_init();
@@ -91,7 +95,6 @@ static void subos_modular_core_boot(void) {
     // Bus & Devices
     printk(KERN_INFO "[5/14] Enumerating System Devices, Canvas & PTY... ");
 #if defined(__x86_64__)
-    pci_init();
     virt_init();
     fb_init();
     bochs_vbe_init();

@@ -5,18 +5,31 @@
 
 static ata_device_t primary_master;
 
-static void ata_wait_ready(uint16_t io_base) {
+static bool ata_wait_ready(uint16_t io_base) {
     // 400ns delay
-    inb(io_base + 7);
-    inb(io_base + 7);
-    inb(io_base + 7);
-    inb(io_base + 7);
+    for (int i = 0; i < 4; i++) {
+        inb(io_base + 7);
+    }
 
-    while (inb(io_base + 7) & 0x80); // Wait while BSY (Busy) bit is set
+    for (uint32_t timeout = 50000; timeout > 0; timeout--) {
+        if (!(inb(io_base + 7) & 0x80)) {
+            return true; // BSY bit cleared
+        }
+    }
+    return false;
 }
 
-static void ata_wait_drq(uint16_t io_base) {
-    while (!(inb(io_base + 7) & 0x08)); // Wait while DRQ (Data Request) bit is clear
+static bool ata_wait_drq(uint16_t io_base) {
+    for (uint32_t timeout = 50000; timeout > 0; timeout--) {
+        uint8_t status = inb(io_base + 7);
+        if (status & 0x08) {
+            return true; // DRQ bit set
+        }
+        if (status & 0x01) {
+            return false; // ERR bit set
+        }
+    }
+    return false;
 }
 
 bool ata_init(void) {
@@ -35,7 +48,9 @@ bool ata_init(void) {
         return false; // No drive
     }
 
-    ata_wait_ready(ATA_PRIMARY_IO);
+    if (!ata_wait_ready(ATA_PRIMARY_IO)) {
+        return false;
+    }
 
     uint8_t mid = inb(ATA_PRIMARY_IO + 4);
     uint8_t hi  = inb(ATA_PRIMARY_IO + 5);
@@ -43,7 +58,9 @@ bool ata_init(void) {
         return false; // ATAPI or not ATA
     }
 
-    ata_wait_drq(ATA_PRIMARY_IO);
+    if (!ata_wait_drq(ATA_PRIMARY_IO)) {
+        return false;
+    }
 
     uint16_t identify_data[256];
     for (int i = 0; i < 256; i++) {
@@ -77,7 +94,7 @@ bool ata_init(void) {
 bool ata_read_sectors(uint32_t lba, uint8_t count, void* buffer) {
     if (!primary_master.present || !buffer || count == 0) return false;
 
-    ata_wait_ready(ATA_PRIMARY_IO);
+    if (!ata_wait_ready(ATA_PRIMARY_IO)) return false;
 
     outb(ATA_PRIMARY_IO + 6, 0xE0 | ((lba >> 24) & 0x0F)); // Master, LBA mode
     outb(ATA_PRIMARY_IO + 2, count);
@@ -89,8 +106,9 @@ bool ata_read_sectors(uint32_t lba, uint8_t count, void* buffer) {
     uint16_t* ptr = (uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++) {
-        ata_wait_ready(ATA_PRIMARY_IO);
-        ata_wait_drq(ATA_PRIMARY_IO);
+        if (!ata_wait_ready(ATA_PRIMARY_IO) || !ata_wait_drq(ATA_PRIMARY_IO)) {
+            return false;
+        }
 
         for (int i = 0; i < 256; i++) {
             *ptr++ = inw(ATA_PRIMARY_IO);
@@ -103,7 +121,7 @@ bool ata_read_sectors(uint32_t lba, uint8_t count, void* buffer) {
 bool ata_write_sectors(uint32_t lba, uint8_t count, const void* buffer) {
     if (!primary_master.present || !buffer || count == 0) return false;
 
-    ata_wait_ready(ATA_PRIMARY_IO);
+    if (!ata_wait_ready(ATA_PRIMARY_IO)) return false;
 
     outb(ATA_PRIMARY_IO + 6, 0xE0 | ((lba >> 24) & 0x0F));
     outb(ATA_PRIMARY_IO + 2, count);
@@ -115,21 +133,21 @@ bool ata_write_sectors(uint32_t lba, uint8_t count, const void* buffer) {
     const uint16_t* ptr = (const uint16_t*)buffer;
 
     for (uint8_t s = 0; s < count; s++) {
-        ata_wait_ready(ATA_PRIMARY_IO);
-        ata_wait_drq(ATA_PRIMARY_IO);
+        if (!ata_wait_ready(ATA_PRIMARY_IO) || !ata_wait_drq(ATA_PRIMARY_IO)) {
+            return false;
+        }
 
         for (int i = 0; i < 256; i++) {
             outw(ATA_PRIMARY_IO, *ptr++);
         }
-    }
 
-    // Flush Cache
-    outb(ATA_PRIMARY_IO + 7, 0xE7);
-    ata_wait_ready(ATA_PRIMARY_IO);
+        outb(ATA_PRIMARY_IO + 7, 0xE7); // Cache Flush
+        if (!ata_wait_ready(ATA_PRIMARY_IO)) return false;
+    }
 
     return true;
 }
 
 const ata_device_t* ata_get_primary_master(void) {
-    return &primary_master;
+    return primary_master.present ? &primary_master : NULL;
 }
