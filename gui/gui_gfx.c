@@ -5,8 +5,8 @@
 
 static uint32_t* g_frontbuffer = NULL;
 static uint32_t* g_backbuffer = NULL;
-static int g_width = 320;
-static int g_height = 200;
+static int g_width = 800;
+static int g_height = 600;
 
 // Standard 8x8 font bitmap table for printable ASCII characters (32..126)
 static const uint8_t font8x8[96][8] = {
@@ -110,8 +110,8 @@ static const uint8_t font8x8[96][8] = {
 
 void gui_gfx_init(uint32_t* fb, int width, int height) {
     g_frontbuffer = fb;
-    g_width = (width > 0) ? width : 320;
-    g_height = (height > 0) ? height : 200;
+    g_width = (width > 0) ? width : 800;
+    g_height = (height > 0) ? height : 600;
 
     if (!g_backbuffer) {
         g_backbuffer = (uint32_t*)kzalloc(g_width * g_height * sizeof(uint32_t));
@@ -249,11 +249,40 @@ void gui_gfx_draw_char(int x, int y, char c, uint32_t fg, uint32_t bg, bool tran
     }
 }
 
+// Sharp High-DPI 8x16 font renderer with 2x vertical pixel fidelity
+void gui_gfx_draw_char_16(int x, int y, char c, uint32_t fg, uint32_t bg, bool transparent_bg) {
+    if (c < 32 || c > 126) c = '?';
+    const uint8_t* glyph = font8x8[c - 32];
+
+    for (int row = 0; row < 8; row++) {
+        uint8_t bits = glyph[row];
+        for (int col = 0; col < 8; col++) {
+            if (bits & (1 << (7 - col))) {
+                gui_gfx_draw_pixel(x + col, y + row * 2, fg);
+                gui_gfx_draw_pixel(x + col, y + row * 2 + 1, fg);
+            } else if (!transparent_bg) {
+                gui_gfx_draw_pixel(x + col, y + row * 2, bg);
+                gui_gfx_draw_pixel(x + col, y + row * 2 + 1, bg);
+            }
+        }
+    }
+}
+
 void gui_gfx_draw_string(int x, int y, const char* str, uint32_t fg) {
     if (!str) return;
     int cx = x;
     while (*str) {
         gui_gfx_draw_char(cx, y, *str, fg, 0, true);
+        cx += 8;
+        str++;
+    }
+}
+
+void gui_gfx_draw_string_16(int x, int y, const char* str, uint32_t fg) {
+    if (!str) return;
+    int cx = x;
+    while (*str) {
+        gui_gfx_draw_char_16(cx, y, *str, fg, 0, true);
         cx += 8;
         str++;
     }
@@ -274,9 +303,14 @@ void gui_gfx_draw_string_shadow(int x, int y, const char* str, uint32_t fg, uint
     gui_gfx_draw_string(x, y, str, fg);
 }
 
+void gui_gfx_draw_string_16_shadow(int x, int y, const char* str, uint32_t fg, uint32_t shadow) {
+    gui_gfx_draw_string_16(x + 1, y + 1, str, shadow);
+    gui_gfx_draw_string_16(x, y, str, fg);
+}
+
 void gui_gfx_draw_shadow(int x, int y, int w, int h, int blur) {
     for (int r = 1; r <= blur; r++) {
-        uint8_t alpha = (uint8_t)(60 / r);
+        uint8_t alpha = (uint8_t)(50 / r);
         gui_gfx_fill_rect_blend(x + r, y + h, w, r, GUI_COLOR_BLACK, alpha);
         gui_gfx_fill_rect_blend(x + w, y + r, r, h, GUI_COLOR_BLACK, alpha);
     }

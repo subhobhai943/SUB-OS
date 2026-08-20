@@ -35,8 +35,8 @@ gui_window_t* gui_wm_create_window(const char* title, int x, int y, int w, int h
     strncpy(win->title, title ? title : "Window", sizeof(win->title) - 1);
     win->x = x;
     win->y = y;
-    win->width = (w > 60) ? w : 60;
-    win->height = (h > 40) ? h : 40;
+    win->width = (w > 100) ? w : 100;
+    win->height = (h > 60) ? h : 60;
     win->visible = true;
     win->minimized = false;
     win->active = true;
@@ -143,7 +143,7 @@ void gui_wm_handle_mouse(int mx, int my, bool btn_left, bool btn_right) {
                 win->x = mx - win->drag_off_x;
                 win->y = my - win->drag_off_y;
                 if (win->y < 0) win->y = 0;
-                if (win->x + win->width < 20) win->x = 20 - win->width;
+                if (win->x + win->width < 40) win->x = 40 - win->width;
             }
             g_prev_btn_left = btn_left;
             return;
@@ -163,8 +163,8 @@ void gui_wm_handle_mouse(int mx, int my, bool btn_left, bool btn_right) {
                 
                 gui_wm_focus_window(win->id);
 
-                // Close button [X] at (win->x + win->width - 14, win->y + 3, 10x10)
-                if (mx >= win->x + win->width - 14 && mx <= win->x + win->width - 4) {
+                // Close button [X] at (win->x + win->width - 20, win->y + 5, 14x14)
+                if (mx >= win->x + win->width - 20 && mx <= win->x + win->width - 6) {
                     gui_wm_destroy_window(win->id);
                     g_prev_btn_left = btn_left;
                     return;
@@ -255,29 +255,31 @@ void gui_wm_render(void) {
         if (!win || !win->visible || win->minimized) continue;
 
         // Window Drop Shadow
-        gui_gfx_draw_shadow(win->x, win->y, win->width, win->height, 3);
+        gui_gfx_draw_shadow(win->x, win->y, win->width, win->height, 6);
 
         // Window Outer Border
         uint32_t border_col = win->active ? GUI_THEME_PRIMARY : GUI_THEME_BORDER;
         gui_gfx_draw_rect(win->x, win->y, win->width, win->height, border_col);
 
-        // Titlebar Background
-        uint32_t title_bg = win->active ? GUI_THEME_TITLEBAR_ACT : GUI_THEME_TITLEBAR_INACT;
-        gui_gfx_fill_rect(win->x + 1, win->y + 1, win->width - 2, GUI_TITLEBAR_HEIGHT - 1, title_bg);
+        // Titlebar Background Gradient
+        uint32_t top_bg = win->active ? 0xFF1E293B : 0xFF0F172A;
+        uint32_t bot_bg = win->active ? 0xFF0F172A : 0xFF0A0E1A;
+        gui_gfx_draw_gradient_v(win->x + 1, win->y + 1, win->width - 2, GUI_TITLEBAR_HEIGHT - 1, top_bg, bot_bg);
 
-        // Titlebar Bottom Separator
+        // Titlebar Separator
         gui_gfx_draw_line(win->x, win->y + GUI_TITLEBAR_HEIGHT, win->x + win->width - 1, win->y + GUI_TITLEBAR_HEIGHT, border_col);
 
-        // Titlebar Window Title Text
+        // Titlebar Window Title Text (Large sharp 8x16 font)
         uint32_t title_fg = win->active ? GUI_THEME_TEXT_MAIN : GUI_THEME_TEXT_MUTED;
-        gui_gfx_draw_string_shadow(win->x + 6, win->y + 4, win->title, title_fg, GUI_COLOR_BLACK);
+        gui_gfx_draw_string_16_shadow(win->x + 8, win->y + 4, win->title, title_fg, GUI_COLOR_BLACK);
 
         // Close Button [X]
-        int close_x = win->x + win->width - 13;
-        int close_y = win->y + 3;
-        gui_gfx_fill_rect(close_x, close_y, 10, 10, GUI_THEME_BTN_CLOSE);
-        gui_gfx_draw_line(close_x + 2, close_y + 2, close_x + 7, close_y + 7, GUI_COLOR_WHITE);
-        gui_gfx_draw_line(close_x + 7, close_y + 2, close_x + 2, close_y + 7, GUI_COLOR_WHITE);
+        int close_x = win->x + win->width - 20;
+        int close_y = win->y + 5;
+        gui_gfx_fill_rect(close_x, close_y, 14, 14, GUI_THEME_BTN_CLOSE);
+        gui_gfx_draw_rect(close_x, close_y, 14, 14, 0xFF991B1B);
+        gui_gfx_draw_line(close_x + 3, close_y + 3, close_x + 10, close_y + 10, GUI_COLOR_WHITE);
+        gui_gfx_draw_line(close_x + 10, close_y + 3, close_x + 3, close_y + 10, GUI_COLOR_WHITE);
 
         // Client Area Background
         gui_gfx_fill_rect(win->x + 1, win->y + GUI_TITLEBAR_HEIGHT + 1, win->width - 2, win->height - GUI_TITLEBAR_HEIGHT - 2, GUI_THEME_BG_SURFACE);

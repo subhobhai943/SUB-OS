@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define GUI_TASKBAR_HEIGHT 20
+#define GUI_TASKBAR_HEIGHT 32
 
 void gui_desktop_init(void);
 void gui_desktop_render_background(void);

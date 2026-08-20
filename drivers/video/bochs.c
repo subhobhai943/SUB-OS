@@ -58,7 +58,7 @@ bool bochs_vbe_init(void) {
             vbe_info.lfb_phys_addr = 0xFD000000;
         }
 
-        bochs_vbe_set_mode(320, 200, 32);
+        bochs_vbe_set_mode(800, 600, 32);
 
         printk(KERN_INFO "VBE: Bochs/QEMU VBE Display Adapter detected (v%04x, Linear Framebuffer: 0x%llx)\n",
                vbe_info.vbe_version, vbe_info.lfb_phys_addr);
@@ -69,9 +69,9 @@ bool bochs_vbe_init(void) {
     vbe_info.available = true;
     vbe_info.vbe_version = 0xB0C5;
     vbe_info.lfb_phys_addr = 0xFD000000;
-    bochs_vbe_set_mode(320, 200, 32);
+    bochs_vbe_set_mode(800, 600, 32);
 
-    printk(KERN_INFO "VBE: Standard VESA/VBE Display Engine online (320x200 32bpp TrueColor)\n");
+    printk(KERN_INFO "VBE: Standard VESA/VBE Display Engine online (800x600 32bpp TrueColor)\n");
     return true;
 }
 

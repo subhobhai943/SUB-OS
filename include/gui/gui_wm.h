@@ -8,7 +8,7 @@
 #include <gui/gui_theme.h>
 
 #define GUI_MAX_WINDOWS 16
-#define GUI_TITLEBAR_HEIGHT 16
+#define GUI_TITLEBAR_HEIGHT 24
 
 typedef enum {
     GUI_EVENT_MOUSE_MOVE,
@@ -32,7 +32,7 @@ typedef struct {
 
 typedef struct gui_window {
     int id;
-    char title[48];
+    char title[64];
     int x;
     int y;
     int width;
