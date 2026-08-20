@@ -166,6 +166,8 @@ int cpp_kernel_init(void) {
         }
     }
 
+    cpp_device_init_all();
+
     printk(KERN_INFO "CXX: Freestanding C++17 Runtime & OOP Engine initialized\n");
     return 0;
 }

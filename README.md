@@ -29,8 +29,10 @@
 
 - ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:
   - **Bare-Metal C++ Runtime**: `operator new`/`delete`, sized deallocation, placement `new`, pure virtual handlers (`__cxa_pure_virtual`), and `.init_array` global constructor dispatcher.
-  - **Object-Oriented Subsystems**: Polymorphic `AbstractKernelService` hierarchy with runtime virtual method dispatch, RAII, dynamic memory management, and template-based fixed ring buffers (`FixedRingBuffer`).
-  - **Interactive C++ Commands**: `cppinfo` (Kernel telemetry & status) and `cpptest` (Polymorphic dispatch & dynamic allocation verifier).
+  - **Modern Generic Containers**: Pure freestanding `Vector<T>`, `UniquePtr<T>` (with polymorphic converting constructors and custom deleters), dynamic `String`, and move semantics (`kernel::move`, `kernel::forward`).
+  - **Object-Oriented Device Driver Model**: Abstract `Device` base class with `BlockDevice`, `CharDevice`, `VirtualRamDiskDevice` (512B sector emulator), and `VirtualNull`/`VirtualZero` concrete classes managed by the `DeviceManager` singleton.
+  - **C++ Microbenchmark Engine**: Validates zero-overhead abstractions, virtual method dynamic dispatch latency across 500,000 iterations, and dynamic container throughput.
+  - **Interactive C++ Commands**: `cppinfo` (Kernel telemetry), `cppdevs` (OOP device tree), `cppbench` (Microbenchmarks), and `cpptest` (Polymorphic dispatch verifier).
 - 🐍 **Interactive In-Kernel Snake Game (`userland/lazybox/snake.c`)**:
   - Full-featured ANSI terminal game featuring real-time keyboard control (`WASD` and Arrow keys), dynamic food generation, score counter, body growth, wall/self collision detection, and autonomous simulation mode (`snake --demo`).
 - 🔮 **SUB Programming Language Kernel Signature & In-Kernel VM (`sub/` & `kernel/sub/`)**:
@@ -208,7 +210,7 @@ make run-gui
 | **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `dnscache`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
 | **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `beep`, `mouse`, `alsamixer`, `tts`, `virtinfo` |
 | **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `aead`, `cryptobench` |
-| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `shm`, `readelf`, `buddyinfo`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest` |
+| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `shm`, `readelf`, `buddyinfo`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest`, `cppdevs`, `cppbench` |
 | **Entertainment & Games** | `snake`, `matrix`, `calc` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
 | **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat` |

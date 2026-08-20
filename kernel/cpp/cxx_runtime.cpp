@@ -29,6 +29,10 @@ extern "C" {
         return 0; // Kernel runs indefinitely until shutdown
     }
 
+    int atexit(void (*/*func*/)(void)) {
+        return 0;
+    }
+
     void __cxa_pure_virtual(void) {
         panic("C++ Pure Virtual Function Called");
     }

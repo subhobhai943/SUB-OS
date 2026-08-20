@@ -293,7 +293,7 @@ ifeq ($(ARCH), x86_64)
                -mcmodel=kernel -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
                $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2) -Iinclude -D__x86_64__ \
                -std=c++17 -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
-    CPP_SRCS = kernel/cpp/cxx_runtime.cpp kernel/cpp/cpp_module.cpp
+    CPP_SRCS = $(shell find kernel/cpp -name '*.cpp' 2>/dev/null)
     CPP_OBJS = $(patsubst %.cpp, $(BUILD_DIR)/%.o, $(CPP_SRCS))
     ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
     C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))

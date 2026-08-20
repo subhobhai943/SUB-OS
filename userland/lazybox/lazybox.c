@@ -966,6 +966,17 @@ static int applet_cpptest(int argc, char** argv) {
     return cpp_test_oop_subsystem();
 }
 
+static int applet_cppdevs(int argc, char** argv) {
+    (void)argc; (void)argv;
+    cpp_device_dump();
+    return 0;
+}
+
+static int applet_cppbench(int argc, char** argv) {
+    (void)argc; (void)argv;
+    return cpp_run_benchmarks();
+}
+
 static int applet_shm(int argc, char** argv) {
     (void)argc; (void)argv;
     posix_shm_dump();
@@ -2137,6 +2148,8 @@ static const lazybox_applet_t applets[] = {
     {"snake",         applet_snake,         "snake [--demo]",            "Interactive ANSI Snake Game", "Games"},
     {"cppinfo",       applet_cppinfo,       "cppinfo",                   "C++ OOP kernel telemetry",   "System"},
     {"cpptest",       applet_cpptest,       "cpptest",                   "C++ polymorphism & new/del", "System"},
+    {"cppdevs",       applet_cppdevs,       "cppdevs",                   "C++ OOP device tree",        "System"},
+    {"cppbench",      applet_cppbench,      "cppbench",                  "C++ OOP benchmark suite",    "System"},
     {"shm",           applet_shm,           "shm",                       "POSIX /dev/shm shared memory", "System"},
     {"dnscache",      applet_dnscache,      "dnscache [-f]",             "DNS resolver cache & metrics", "Network"},
     {"beep",          applet_beep,          "beep [freq/jingle] [ms]",   "PC speaker & HDA tone synth", "Sound"},

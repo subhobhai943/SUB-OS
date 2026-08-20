@@ -18,6 +18,13 @@ void cpp_kernel_print_status(void);
 // Run C++ OOP Virtual Dispatch and Template Test
 int cpp_test_oop_subsystem(void);
 
+// C++ Object-Oriented Device Management
+void cpp_device_init_all(void);
+void cpp_device_dump(void);
+
+// C++ Kernel Performance Benchmarks
+int cpp_run_benchmarks(void);
+
 #ifdef __cplusplus
 }
 #endif
