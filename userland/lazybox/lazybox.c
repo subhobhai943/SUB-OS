@@ -35,6 +35,8 @@
 #include <ipc/shm_posix.h>
 #include <net/dns_cache.h>
 #include <sound/beep.h>
+#include <kernel/tsc.h>
+#include <kernel/vt_art.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -1182,45 +1184,29 @@ static int applet_kill(int argc, char** argv) {
     return task_kill(pid, sig);
 }
 
-static void tree_walk_dir(vfs_node_t* node, int depth, int* dir_count, int* file_count) {
-    if (!node || !node->readdir || depth > 6) return;
-
-    for (uint32_t idx = 0; ; idx++) {
-        vfs_dirent_t* ent = node->readdir(node, idx);
-        if (!ent) break;
-        if (strcmp(ent->name, ".") == 0 || strcmp(ent->name, "..") == 0) continue;
-
-        for (int d = 0; d < depth; d++) {
-            printk("│   ");
-        }
-
-        bool is_dir = (ent->type & FS_DIRECTORY) != 0;
-        if (is_dir) {
-            (*dir_count)++;
-            printk("├── " ANSI_BRIGHT_BLUE "%s" ANSI_RESET "\n", ent->name);
-            vfs_node_t* child = node->finddir ? node->finddir(node, ent->name) : NULL;
-            if (child) {
-                tree_walk_dir(child, depth + 1, dir_count, file_count);
-            }
-        } else {
-            (*file_count)++;
-            printk("├── " ANSI_WHITE "%s" ANSI_RESET "\n", ent->name);
-        }
-    }
-}
+int cmd_tree_main(int argc, char** argv);
 
 static int applet_tree(int argc, char** argv) {
-    const char* path = (argc >= 2) ? argv[1] : "/";
-    vfs_node_t* node = vfs_namei(path);
-    if (!node) {
-        printk(ANSI_RED "tree: '%s': No such file or directory\n" ANSI_RESET, path);
-        return 1;
-    }
+    return cmd_tree_main(argc, argv);
+}
 
-    printk(ANSI_BRIGHT_CYAN "%s\n" ANSI_RESET, path);
-    int dirs = 0, files = 0;
-    tree_walk_dir(node, 0, &dirs, &files);
-    printk("\n%d directories, %d files\n", dirs, files);
+static int applet_tscinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    tsc_dump_info();
+    return 0;
+}
+
+static int applet_vtart(int argc, char** argv) {
+    if (argc >= 2 && strcmp(argv[1], "--palette") == 0) {
+        vt_show_palette_256();
+        return 0;
+    } else if (argc >= 2 && strcmp(argv[1], "--bars") == 0) {
+        vt_show_load_bars(15, 28, 42);
+        return 0;
+    }
+    vt_show_logo_banner();
+    vt_show_load_bars(12, 24, 35);
+    vt_show_palette_256();
     return 0;
 }
 
@@ -2156,6 +2142,8 @@ static const lazybox_applet_t applets[] = {
     {"readelf",       applet_readelf,       "readelf [file.elf]",        "Rust ELF binary inspector",  "System"},
     {"buddyinfo",     applet_buddyinfo,     "buddyinfo",                 "Rust buddy allocator stats", "System"},
     {"aead",          applet_aead,          "aead [message]",            "Rust ChaCha20-Poly1305 AEAD", "Crypto"},
+    {"tscinfo",       applet_tscinfo,       "tscinfo",                   "Hardware TSC cycle counter", "System"},
+    {"vtart",         applet_vtart,         "vtart [--palette/--bars]",  "Terminal graphics visualizer", "Terminal"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

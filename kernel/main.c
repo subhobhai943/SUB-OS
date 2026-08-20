@@ -61,6 +61,7 @@
 #include <net/dns_cache.h>
 #include <ipc/shm_posix.h>
 #include <sound/beep.h>
+#include <kernel/tsc.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
@@ -229,6 +230,7 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
 
     printk(KERN_INFO "[1/14] Initializing 64-Bit GDT, IDT, PIC & PIT Timer... ");
     arch_init();
+    tsc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     printk(KERN_INFO "[2/14] Initializing PS/2 Keyboard, Mouse & ACPI... ");
