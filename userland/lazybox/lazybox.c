@@ -37,6 +37,10 @@
 #include <sound/beep.h>
 #include <kernel/tsc.h>
 #include <kernel/vt_art.h>
+#include <drivers/cpufreq.h>
+#include <drivers/virtio_gpu.h>
+#include <drivers/e1000e.h>
+#include <drivers/virtio_input.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -991,6 +995,32 @@ static int applet_dnscache(int argc, char** argv) {
         return 0;
     }
     dns_cache_dump();
+    return 0;
+}
+
+static int applet_cpufreq(int argc, char** argv) {
+    if (argc >= 3 && strcmp(argv[1], "-g") == 0) {
+        if (cpufreq_set_governor_by_name(argv[2]) == 0) {
+            printk(ANSI_BRIGHT_GREEN "CPU governor switched to '%s'\n" ANSI_RESET, argv[2]);
+            return 0;
+        } else {
+            printk(ANSI_BRIGHT_RED "Invalid governor '%s'. Valid: performance, powersave, ondemand, conservative, schedutil\n" ANSI_RESET, argv[2]);
+            return 1;
+        }
+    }
+    cpufreq_dump_info();
+    return 0;
+}
+
+static int applet_gpuinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    virtio_gpu_dump_status();
+    return 0;
+}
+
+static int applet_e1000e(int argc, char** argv) {
+    (void)argc; (void)argv;
+    e1000e_dump_stats();
     return 0;
 }
 
@@ -2144,6 +2174,9 @@ static const lazybox_applet_t applets[] = {
     {"aead",          applet_aead,          "aead [message]",            "Rust ChaCha20-Poly1305 AEAD", "Crypto"},
     {"tscinfo",       applet_tscinfo,       "tscinfo",                   "Hardware TSC cycle counter", "System"},
     {"vtart",         applet_vtart,         "vtart [--palette/--bars]",  "Terminal graphics visualizer", "Terminal"},
+    {"cpufreq",       applet_cpufreq,       "cpufreq [-g governor]",     "CPU frequency & P-State gov", "System"},
+    {"gpuinfo",       applet_gpuinfo,       "gpuinfo",                   "VirtIO-GPU hardware status", "Virtualization"},
+    {"e1000e",        applet_e1000e,        "e1000e",                    "Intel e1000e PCIe NIC stats", "Network"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

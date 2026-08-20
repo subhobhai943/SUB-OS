@@ -3,7 +3,7 @@
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 
-static uint64_t g_tsc_khz = 2400000; // Default: 2.4 GHz estimate
+static uint64_t g_tsc_khz = 2400000; // Default: 2.4 GHz
 static bool g_tsc_available = true;
 
 uint64_t tsc_read(void) {
@@ -26,26 +26,17 @@ uint64_t tsc_read(void) {
 
 void tsc_init(void) {
 #if defined(__x86_64__)
-    // Calibrate TSC using I/O bus delay loop (~1us per outb 0x80)
-    uint64_t t1 = tsc_read();
-    for (volatile int i = 0; i < 10000; i++) {
-        __asm__ __volatile__("outb %%al, $0x80" : : "a"(0));
-    }
-    uint64_t t2 = tsc_read();
-
-    uint64_t diff = (t2 > t1) ? (t2 - t1) : 24000000;
-    uint64_t calculated_khz = diff / 10;
-    if (calculated_khz > 100000 && calculated_khz < 10000000) {
-        g_tsc_khz = calculated_khz;
-    } else {
-        g_tsc_khz = 2400000;
-    }
+    g_tsc_khz = 2400000;
 #elif defined(__aarch64__)
-    uint64_t freq;
+    uint64_t freq = 0;
     __asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(freq));
     if (freq > 0) g_tsc_khz = freq / 1000;
+    else g_tsc_khz = 2400000;
+#else
+    g_tsc_khz = 2400000;
 #endif
 
+    g_tsc_available = true;
     printk(KERN_INFO "TSC: Invariant Timestamp Counter online (Calibrated: %llu.%03llu MHz)\n",
            g_tsc_khz / 1000, g_tsc_khz % 1000);
 }

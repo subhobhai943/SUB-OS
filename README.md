@@ -207,8 +207,8 @@ make run-gui
 |---|---|
 | **Core & Shell** | `lazybox`, `sh`, `echo`, `env`, `export`, `whoami`, `id`, `date`, `cal`, `jsonquery`, `subi` |
 | **Filesystem & Search** | `nano`, `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `tree`, `find`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `grep`, `hexdump`, `dcache` |
-| **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `dnscache`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
-| **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `beep`, `mouse`, `alsamixer`, `tts`, `virtinfo` |
+| **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `dnscache`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh`, `e1000e` |
+| **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `beep`, `mouse`, `alsamixer`, `tts`, `virtinfo`, `gpuinfo`, `cpufreq` |
 | **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `aead`, `cryptobench` |
 | **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `shm`, `readelf`, `buddyinfo`, `tscinfo`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest`, `cppdevs`, `cppbench` |
 | **Entertainment & Games** | `snake`, `matrix`, `calc`, `vtart` |

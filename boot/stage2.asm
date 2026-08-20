@@ -93,7 +93,7 @@ start2:
     mov word [kernel_dap_seg], 0x1000
     mov dword [kernel_dap_lba], 16
     mov dword [kernel_dap_lba + 4], 0
-    mov cx, 14                         ; 14 chunks * 64 sectors = 896 sectors (448 KB)
+    mov cx, 24                         ; 24 chunks * 64 sectors = 1536 sectors (768 KB)
 
 .kernel_chunk_loop:
     push cx
@@ -199,7 +199,7 @@ pm_entry:
     ; Copy kernel from 0x10000 to 0x100000 (1MB mark) - 192 KB (384 sectors)
     mov esi, 0x10000
     mov edi, 0x100000
-    mov ecx, (896 * 512) / 4
+    mov ecx, (1536 * 512) / 4
     rep movsd
 
     ; Enable PAE in CR4

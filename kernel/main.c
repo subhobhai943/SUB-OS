@@ -62,6 +62,10 @@
 #include <ipc/shm_posix.h>
 #include <sound/beep.h>
 #include <kernel/tsc.h>
+#include <drivers/e1000e.h>
+#include <drivers/virtio_gpu.h>
+#include <drivers/cpufreq.h>
+#include <drivers/virtio_input.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
@@ -105,13 +109,17 @@ static void subos_modular_core_boot(void) {
     virt_init();
     fb_init();
     bochs_vbe_init();
+    virtio_gpu_init();
     usb_init();
     xhci_init();
     hwmon_init();
+    cpufreq_init();
 #endif
     canvas_init();
     pty_init();
     virtio_rng_init();
+    virtio_input_init();
+    tsc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // Network Subsystem, NetFilter, HTTPD & SSH Server
@@ -122,7 +130,8 @@ static void subos_modular_core_boot(void) {
 #if defined(__x86_64__)
     rtl8139_init();
     virtio_net_init();
-    if (e1000_init()) {
+    e1000e_init();
+    if (e1000_init() || e1000e_is_online()) {
         net_init();
         socket_subsystem_init();
         udp_init();
@@ -230,7 +239,6 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
 
     printk(KERN_INFO "[1/14] Initializing 64-Bit GDT, IDT, PIC & PIT Timer... ");
     arch_init();
-    tsc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     printk(KERN_INFO "[2/14] Initializing PS/2 Keyboard, Mouse & ACPI... ");
