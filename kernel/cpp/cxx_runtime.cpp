@@ -16,7 +16,7 @@ extern "C" {
     extern ctor_fn_t __init_array_end[];
 
     void cpp_call_global_constructors(void) {
-        if (__init_array_end <= __init_array_start) return;
+        if (+__init_array_end <= +__init_array_start) return;
         size_t count = __init_array_end - __init_array_start;
         for (size_t i = 0; i < count; i++) {
             if (__init_array_start[i]) {

@@ -32,6 +32,9 @@
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
+#include <ipc/shm_posix.h>
+#include <net/dns_cache.h>
+#include <sound/beep.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -961,6 +964,21 @@ static int applet_cppinfo(int argc, char** argv) {
 static int applet_cpptest(int argc, char** argv) {
     (void)argc; (void)argv;
     return cpp_test_oop_subsystem();
+}
+
+static int applet_shm(int argc, char** argv) {
+    (void)argc; (void)argv;
+    posix_shm_dump();
+    return 0;
+}
+
+static int applet_dnscache(int argc, char** argv) {
+    if (argc >= 2 && strcmp(argv[1], "-f") == 0) {
+        dns_cache_flush();
+        return 0;
+    }
+    dns_cache_dump();
+    return 0;
 }
 
 static int applet_whoami(int argc, char** argv) {
@@ -2024,6 +2042,9 @@ static const lazybox_applet_t applets[] = {
     {"snake",         applet_snake,         "snake [--demo]",            "Interactive ANSI Snake Game", "Games"},
     {"cppinfo",       applet_cppinfo,       "cppinfo",                   "C++ OOP kernel telemetry",   "System"},
     {"cpptest",       applet_cpptest,       "cpptest",                   "C++ polymorphism & new/del", "System"},
+    {"shm",           applet_shm,           "shm",                       "POSIX /dev/shm shared memory", "System"},
+    {"dnscache",      applet_dnscache,      "dnscache [-f]",             "DNS resolver cache & metrics", "Network"},
+    {"beep",          applet_beep,          "beep [freq/jingle] [ms]",   "PC speaker & HDA tone synth", "Sound"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

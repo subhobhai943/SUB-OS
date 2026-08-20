@@ -58,6 +58,9 @@
 #include <net/tcp.h>
 #include <net/dhcp.h>
 #include <net/dns.h>
+#include <net/dns_cache.h>
+#include <ipc/shm_posix.h>
+#include <sound/beep.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
@@ -125,12 +128,14 @@ static void subos_modular_core_boot(void) {
         tcp_init();
         dhcp_init();
         dns_init();
+        dns_cache_init();
         printk(ANSI_BRIGHT_GREEN "Online\n" ANSI_RESET);
     } else {
         printk(ANSI_YELLOW "No NIC detected\n" ANSI_RESET);
     }
 #else
     virtio_net_init();
+    dns_cache_init();
     printk(ANSI_BRIGHT_GREEN "Online\n" ANSI_RESET);
 #endif
 
@@ -156,8 +161,9 @@ static void subos_modular_core_boot(void) {
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // Inter-Process Communication
-    printk(KERN_INFO "[9/14] Initializing IPC Engine (Pipes, MsgQueues, SHM, Semaphores)... ");
+    printk(KERN_INFO "[9/14] Initializing IPC Engine (Pipes, MsgQueues, POSIX SHM, Semaphores)... ");
     ipc_init();
+    posix_shm_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // Asynchronous I/O Engine

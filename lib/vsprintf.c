@@ -145,6 +145,11 @@ int vsnprintf(char* buf, size_t size, const char* fmt, va_list args) {
                 out_idx += format_number(buf + out_idx, size - out_idx, val, 10, false, false, width, pad, left_align);
                 break;
             }
+            case 'o': {
+                uint64_t val = is_long_long ? va_arg(args, uint64_t) : (is_long ? va_arg(args, unsigned long) : va_arg(args, unsigned int));
+                out_idx += format_number(buf + out_idx, size - out_idx, val, 8, false, false, width, pad, left_align);
+                break;
+            }
             case 'x': {
                 uint64_t val = is_long_long ? va_arg(args, uint64_t) : (is_long ? va_arg(args, unsigned long) : va_arg(args, unsigned int));
                 out_idx += format_number(buf + out_idx, size - out_idx, val, 16, false, false, width, pad, left_align);
