@@ -405,11 +405,22 @@ run-gui: $(TARGET)
 ifeq ($(ARCH), x86_64)
 	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
-		-device e1000,netdev=net0 -serial stdio
+		-device e1000,netdev=net0 -vga std -serial stdio
 else ifneq ($(filter $(ARCH), aarch64 arm64),)
-	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
 else
-	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
+endif
+
+run-vnc: $(TARGET)
+ifeq ($(ARCH), x86_64)
+	@echo "=== [QEMU VNC Server running at localhost:5900 (VNC Display :0)] ==="
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 -vga std -vnc :0 -serial stdio
+else
+	@echo "=== [QEMU VNC Server running at localhost:5900 (VNC Display :0)] ==="
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -vnc :0 -serial stdio
 endif
 
 run-server: $(IMAGE)
