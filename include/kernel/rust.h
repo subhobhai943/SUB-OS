@@ -98,9 +98,20 @@ int rust_dcache_lookup(const uint8_t* path, size_t len, uint64_t* out_inode, boo
 void rust_dcache_insert(const uint8_t* path, size_t len, uint64_t inode, bool is_dir);
 void rust_dcache_get_metrics(uint64_t* out_hits, uint64_t* out_misses);
 
-// Kernel Watchdog & JSON
+// Kernel Watchdog, JSON & ELF
 void rust_watchdog_ping(uint8_t subsystem_id);
 rust_health_report_t rust_watchdog_get_report(void);
 int rust_json_get_string(const uint8_t* json_str, size_t json_len, const uint8_t* key, size_t key_len, uint8_t* out_val, size_t max_out_len);
+int rust_elf_validate(const uint8_t* buf, size_t len);
+int rust_elf_get_entry(const uint8_t* buf, size_t len, uint64_t* out_entry);
+void rust_elf_dump(const uint8_t* buf, size_t len);
+
+// Memory Management
+void rust_buddy_analyze(uint64_t total_pages, uint64_t free_pages);
+void rust_buddy_dump_stats(void);
+
+// AEAD Authenticated Encryption (ChaCha20-Poly1305)
+int rust_aead_encrypt(const uint8_t* key, const uint8_t* nonce, const uint8_t* aad, size_t aad_len, const uint8_t* plain, size_t plain_len, uint8_t* cipher_out, uint8_t* tag_out);
+int rust_aead_decrypt(const uint8_t* key, const uint8_t* nonce, const uint8_t* aad, size_t aad_len, const uint8_t* cipher, size_t cipher_len, const uint8_t* tag, uint8_t* plain_out);
 
 #endif // _KERNEL_RUST_H

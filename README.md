@@ -42,8 +42,10 @@
   - **In-Kernel SUB Virtual Machine & AST Interpreter (`subi`)**: Run `.sb` scripts or inline expressions live from the shell (`subi file.sb` or `subi -e "var x=10; print(x*2)"`).
 - 🦀 **"Rust for SUB-OS" Memory-Safe Kernel Layer (`rust/src/`)**:
   - **Freestanding Bare-Metal Rust**: Compiled with `rustc 1.75+` in pure `no_std` mode with static FFI bindings.
-  - **Memory-Safe Cryptography**: RFC-8439 ChaCha20 stream cipher, CSPRNG entropy source, FIPS-202 SHA3-256 (Keccak-f[1600]), FIPS-197 AES-128, and RFC-4648 Base64 codec.
-  - **Storage & Disk Parsing**: Memory-safe MBR and GUID Partition Table (GPT) header and partition decoder.
+  - **Memory-Safe Cryptography**: RFC-8439 ChaCha20-Poly1305 AEAD authenticated cipher, CSPRNG entropy source, FIPS-202 SHA3-256 (Keccak-f[1600]), FIPS-197 AES-128, and RFC-4648 Base64 codec.
+  - **Zero-Copy ELF Binary Parser**: Header and segment inspector validating ELF-64/32 binaries and architectures (`readelf`).
+  - **Memory Fragmentation & Buddy Telemetry**: Order 0-10 buddy allocator tracking and external fragmentation indexes (`buddyinfo`).
+  - **Storage & Disk Parsing**: Memory-safe MBR and GUID Partition Table (GPT) header and partition decoder (`fdisk`).
   - **Fast VFS Directory Cache (`dcache`)**: 64-entry LRU path hash table for single-cycle file and directory lookups.
   - **Kernel Health Watchdog & Heartbeat Monitor**: Subsystem sanity checker and anomaly detector.
   - **Zero-Copy JSON Tokenizer**: High-speed JSON key-value query engine for kernel configuration and REST API parsing.
@@ -205,8 +207,8 @@ make run-gui
 | **Filesystem & Search** | `nano`, `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `tree`, `find`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `grep`, `hexdump`, `dcache` |
 | **Networking & Routing** | `ifconfig`, `ping`, `traceroute`, `arp`, `dhclient`, `nslookup`, `dnscache`, `netstat`, `iptables`, `rfilter`, `httpd`, `sshd`, `curl`, `wget`, `ssh` |
 | **Hardware & Storage** | `lspci`, `lsdev`, `lsblk`, `fdisk`, `hdparm`, `sensors`, `speaker`, `beep`, `mouse`, `alsamixer`, `tts`, `virtinfo` |
-| **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `cryptobench` |
-| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `shm`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest` |
+| **Security & Cryptography** | `su`, `passwd`, `useradd`, `certcheck`, `capsh`, `ipcs`, `chacha20`, `sha3sum`, `base64`, `aead`, `cryptobench` |
+| **SUB Language & System** | `subinfo`, `subpower`, `subbench`, `subquote`, `pstree`, `kill`, `shm`, `readelf`, `buddyinfo`, `systemctl`, `service`, `crontab`, `logger`, `logread`, `watchdog`, `rustinfo`, `cppinfo`, `cpptest` |
 | **Entertainment & Games** | `snake`, `matrix`, `calc` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
 | **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat` |

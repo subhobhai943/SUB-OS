@@ -981,6 +981,101 @@ static int applet_dnscache(int argc, char** argv) {
     return 0;
 }
 
+static int applet_readelf(int argc, char** argv) {
+    if (argc >= 2) {
+        int fd = vfs_open(argv[1], 0);
+        if (fd >= 0) {
+            uint8_t header_buf[1024];
+            int n = vfs_read(fd, header_buf, sizeof(header_buf));
+            vfs_close(fd);
+            if (n >= 52) {
+                rust_elf_dump(header_buf, n);
+                return 0;
+            }
+        }
+        printk(ANSI_BRIGHT_RED "Error opening file '%s'\n" ANSI_RESET, argv[1]);
+        return 1;
+    }
+
+    // Default: Inspect in-memory running kernel ELF image
+    const uint8_t* kernel_hdr = (const uint8_t*)0x100000;
+    if (rust_elf_validate(kernel_hdr, 512) == 0) {
+        rust_elf_dump(kernel_hdr, 512);
+    } else {
+        // Construct sample ELF64 header for demonstration
+        uint8_t sample_elf[128];
+        memset(sample_elf, 0, sizeof(sample_elf));
+        sample_elf[0] = 0x7F; sample_elf[1] = 'E'; sample_elf[2] = 'L'; sample_elf[3] = 'F';
+        sample_elf[4] = 2; // 64-bit
+        sample_elf[5] = 1; // Little-endian
+        sample_elf[6] = 1; // Version
+        sample_elf[18] = 0x3E; // EM_X86_64
+        *(uint64_t*)&sample_elf[24] = 0x0000000000100000; // Entry point
+        *(uint64_t*)&sample_elf[32] = 64; // PH offset
+        *(uint16_t*)&sample_elf[54] = 56; // PH entry size
+        *(uint16_t*)&sample_elf[56] = 2;  // 2 PH entries
+        // PH 0: LOAD RX
+        *(uint32_t*)&sample_elf[64] = 1; // PT_LOAD
+        *(uint32_t*)&sample_elf[68] = 5; // PF_R | PF_X
+        *(uint64_t*)&sample_elf[80] = 0x100000;
+        *(uint64_t*)&sample_elf[104] = 0x80000;
+        rust_elf_dump(sample_elf, sizeof(sample_elf));
+    }
+    return 0;
+}
+
+static int applet_buddyinfo(int argc, char** argv) {
+    (void)argc; (void)argv;
+    rust_buddy_analyze(pmm_get_total_pages(), pmm_get_free_pages());
+    rust_buddy_dump_stats();
+    return 0;
+}
+
+static int applet_aead(int argc, char** argv) {
+    const char* plaintext = (argc >= 2) ? argv[1] : "SUB-OS Authenticated Secret Kernel Message";
+    size_t plain_len = strlen(plaintext);
+
+    uint8_t key[32] = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20
+    };
+    uint8_t nonce[12] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B };
+    const char* aad = "SUB-OS-AEAD-V1";
+
+    uint8_t ciphertext[256];
+    uint8_t tag[16];
+    uint8_t decrypted[256];
+
+    printk(ANSI_BRIGHT_CYAN "=== Rust ChaCha20-Poly1305 AEAD Cryptographic Test ===\n" ANSI_RESET);
+    printk("  Plaintext : \"" ANSI_BRIGHT_WHITE "%s" ANSI_RESET "\" (%llu bytes)\n", plaintext, (uint64_t)plain_len);
+    printk("  AAD       : \"%s\"\n", aad);
+
+    int enc_res = rust_aead_encrypt(key, nonce, (const uint8_t*)aad, strlen(aad),
+                                    (const uint8_t*)plaintext, plain_len, ciphertext, tag);
+    if (enc_res != 0) {
+        printk(ANSI_BRIGHT_RED "Encryption failed!\n" ANSI_RESET);
+        return 1;
+    }
+
+    printk("  Tag (MAC) : " ANSI_BRIGHT_YELLOW);
+    for (int i = 0; i < 16; i++) printk("%02x", tag[i]);
+    printk(ANSI_RESET "\n");
+
+    int dec_res = rust_aead_decrypt(key, nonce, (const uint8_t*)aad, strlen(aad),
+                                    ciphertext, plain_len, tag, decrypted);
+    if (dec_res == 0) {
+        decrypted[plain_len] = '\0';
+        printk("  Decrypted : \"" ANSI_BRIGHT_GREEN "%s" ANSI_RESET "\"\n", decrypted);
+        printk("  Auth Status: " ANSI_BRIGHT_GREEN "VERIFIED (100%% Authenticated)\n" ANSI_RESET);
+    } else {
+        printk(ANSI_BRIGHT_RED "Decryption / Authentication failed!\n" ANSI_RESET);
+        return 1;
+    }
+    return 0;
+}
+
 static int applet_whoami(int argc, char** argv) {
     (void)argc; (void)argv;
     const user_account_t* u = auth_get_current_user();
@@ -2045,6 +2140,9 @@ static const lazybox_applet_t applets[] = {
     {"shm",           applet_shm,           "shm",                       "POSIX /dev/shm shared memory", "System"},
     {"dnscache",      applet_dnscache,      "dnscache [-f]",             "DNS resolver cache & metrics", "Network"},
     {"beep",          applet_beep,          "beep [freq/jingle] [ms]",   "PC speaker & HDA tone synth", "Sound"},
+    {"readelf",       applet_readelf,       "readelf [file.elf]",        "Rust ELF binary inspector",  "System"},
+    {"buddyinfo",     applet_buddyinfo,     "buddyinfo",                 "Rust buddy allocator stats", "System"},
+    {"aead",          applet_aead,          "aead [message]",            "Rust ChaCha20-Poly1305 AEAD", "Crypto"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };

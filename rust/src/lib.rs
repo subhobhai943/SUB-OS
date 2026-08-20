@@ -13,6 +13,7 @@ pub mod kernel;
 pub mod storage;
 pub mod net;
 pub mod bench;
+pub mod mm;
 
 #[no_mangle]
 pub extern "C" fn rust_eh_personality() {}
