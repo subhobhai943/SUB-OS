@@ -214,7 +214,7 @@ make run-gui
 | **Entertainment & Games** | `snake`, `matrix`, `calc`, `vtart` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
 | **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat` |
-| **System Control** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty` |
+| **System Control & GUI** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty`, `startx`, `gui`, `desktop` |
 
 ---
 

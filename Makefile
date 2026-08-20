@@ -277,10 +277,12 @@ CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.
                  drivers/input/mouse.c drivers/power/acpi.c drivers/power/cpufreq.c drivers/rtc/rtc.c drivers/sound/speaker.c \
                  drivers/net/e1000e.c drivers/virtio/virtio_gpu.c drivers/virtio/virtio_input.c
 
-# Userland
+# Userland & GUI Desktop Subsystem
 ifeq ($(CONFIG_USERLAND_LAZYBOX), y)
     CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c userland/lazybox/snake.c userland/lazybox/tree.c
 endif
+
+CONFIG_SRCS-y += gui/gui.c gui/gui_gfx.c gui/gui_cursor.c gui/gui_wm.c gui/gui_desktop.c gui/gui_apps.c
 
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))
