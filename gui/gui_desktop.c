@@ -236,12 +236,6 @@ int gui_desktop_run(void) {
 
         // 4. Present Framebuffer to Display
         gui_gfx_present();
-
-        frame_limit++;
-        if (frame_limit > 500) {
-            // Safety break in non-interactive batch test
-            break;
-        }
     }
 
     printk(KERN_INFO "GUI: Desktop session ended, restored TTY console\n");

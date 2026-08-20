@@ -66,6 +66,8 @@
 #include <drivers/virtio_gpu.h>
 #include <drivers/cpufreq.h>
 #include <drivers/virtio_input.h>
+#include <gui/gui.h>
+#include <init/init.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
@@ -216,7 +218,19 @@ static void subos_modular_core_boot(void) {
     arch_enable_interrupts();
     printk(ANSI_BRIGHT_GREEN "ACTIVE\n" ANSI_RESET);
 
-    // Launch Shell
+    // Boot directly into GUI Desktop unless emergency text mode is requested
+    bool emergency_text = init_has_param("nogui") || init_has_param("text") ||
+                          init_has_param("emergency") || init_has_param("single");
+
+    if (!emergency_text) {
+        printk(KERN_INFO "INIT: Booting directly into SUB-OS Graphical Desktop Environment...\n");
+        gui_start_desktop();
+        printk(KERN_INFO "INIT: GUI session closed. Entering Emergency Kernel TTY Mode.\n");
+    } else {
+        printk(KERN_INFO "INIT: Emergency text/kernel TTY mode requested via boot parameters.\n");
+    }
+
+    // Launch Shell (Emergency TTY Mode)
     shell_run();
 
     while (1) {

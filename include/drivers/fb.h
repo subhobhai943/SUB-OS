@@ -16,6 +16,7 @@ typedef struct {
 
 void fb_init(void);
 const fb_info_t* fb_get_info(void);
+void fb_set_hardware_lfb(uint32_t* lfb_addr, uint32_t width, uint32_t height, uint8_t bpp);
 void fb_put_pixel(uint32_t x, uint32_t y, uint32_t color);
 void fb_draw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color);
 void fb_clear(uint32_t color);
