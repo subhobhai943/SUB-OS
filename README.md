@@ -41,6 +41,14 @@
 - 🧪 **In-Kernel Test Harness (`kernel/ktest.c`)**:
   - KUnit-style suites with assertion macros, per-case pass/fail reporting and timing.
   - **6 built-in suites, 21 cases, 735 assertions** covering rbtree, kfifo, hashtable, RCU, futex, wait queues, page cache and libcore — runnable from the shell (`ktest`) or the desktop KTest Runner.
+- 🖥️ **SUB-OS Graphical Desktop Environment (`gui/`)**:
+  - **SUB-WM Compositor**: 800x600 TrueColor double-buffered window manager with drag, corner resize, minimize/maximize/restore, edge snapping (left/right/maximize), tile and cascade layouts, and z-ordered painter's-algorithm compositing.
+  - **SUB-WT Widget Toolkit (`gui/gui_widgets.c`)**: Immediate-mode controls -- buttons, labels, checkboxes, radios, sliders, list boxes, text fields, tab bars, scrollbars, progress bars, sparklines and badges -- so an app rebuilds its interface from state each frame instead of maintaining a retained widget tree.
+  - **Icon Set (`gui/gui_icons.c`)**: 14 hand-drawn 16x16 palette-indexed glyphs, integer-scalable and tintable, driving the desktop grid, start menu and window chrome.
+  - **Modal Dialog Layer (`gui/gui_dialog.c`)**: Info, warning, error and confirm dialogs that dim the desktop and take exclusive input, with word-wrapped messages and callback results.
+  - **Desktop Shell (`gui/gui_desktop.c`)**: Gradient wallpaper with grid overlay, launcher icon grid, start menu, right-click context menu (tile / cascade / toggle grid), and a taskbar with per-window buttons, live CPU trace, memory badge and RTC clock.
+  - **Applications**: Terminal, File Explorer, System Monitor, Task Manager, Kernel Log viewer (live dmesg with severity colouring and scrollback), KTest Runner (drives the in-kernel suites and reports pass/fail), Text Editor, Calculator, Paint Studio, Clock & Calendar, Settings and About.
+  - **Keyboard Shortcuts**: `F5` cycle focus, `F6` cascade, `F7` tile, `F8` maximize, `F9` minimize, `Esc` exit to the kernel TTY.
 - ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:
   - **Bare-Metal C++ Runtime**: `operator new`/`delete`, sized deallocation, placement `new`, pure virtual handlers (`__cxa_pure_virtual`), and `.init_array` global constructor dispatcher.
   - **Modern Generic Containers**: Pure freestanding `Vector<T>`, `UniquePtr<T>` (with polymorphic converting constructors and custom deleters), dynamic `String`, and move semantics (`kernel::move`, `kernel::forward`).
@@ -210,9 +218,15 @@ make ARCH=armv8i
 make run ARCH=armv8i
 ```
 
-#### Graphical Window Emulation (Optional SDL/GTK GUI)
+#### Graphical Desktop Environment
+SUB-OS boots straight into the desktop. Pass `nogui`, `text`, `emergency` or
+`single` on the kernel command line to go directly to the kernel TTY instead;
+from inside the desktop, `Esc` (or Start -> Exit to Kernel TTY) drops to the
+same shell.
+
 ```bash
-make run-gui
+make run-gui     # Local SDL/GTK window
+make run-vnc     # Headless: VNC server on localhost:5900
 ```
 
 ---
