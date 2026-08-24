@@ -250,6 +250,80 @@ static void cmd_matrix(void) {
     tty_clear();
 }
 
+// Builtins that animate or block on a keypress; a caller driving its own
+// input loop (the desktop compositor) cannot afford to be suspended in one.
+static const char* const g_blocking_builtins[] = { "matrix", "reboot", "shutdown", "poweroff", NULL };
+
+bool shell_is_builtin(const char* name) {
+    if (!name) return false;
+    static const char* const names[] = {
+        "help", "neofetch", "version", "calc", "hexdump", "matrix", "beep",
+        "tty", "history", "clear", "cls", "reboot", "shutdown", "poweroff", NULL
+    };
+    for (int i = 0; names[i]; i++) {
+        if (strcmp(names[i], name) == 0) return true;
+    }
+    return false;
+}
+
+bool shell_builtin_blocks(const char* name) {
+    if (!name) return false;
+    for (int i = 0; g_blocking_builtins[i]; i++) {
+        if (strcmp(g_blocking_builtins[i], name) == 0) return true;
+    }
+    return false;
+}
+
+bool shell_execute_builtin(const char* raw_cmd, int argc, char** argv, bool allow_blocking) {
+    if (argc < 1 || !argv || !argv[0]) return false;
+    if (!raw_cmd) raw_cmd = "";
+
+    if (!allow_blocking && shell_builtin_blocks(argv[0])) {
+        printk(ANSI_YELLOW "%s is not available from this console.\n" ANSI_RESET, argv[0]);
+        return true;
+    }
+
+    if (strcmp(argv[0], "help") == 0) {
+        cmd_help();
+    } else if (strcmp(argv[0], "neofetch") == 0 || strcmp(argv[0], "version") == 0) {
+        cmd_neofetch();
+    } else if (strcmp(argv[0], "calc") == 0) {
+        cmd_calc(raw_cmd + 4);
+    } else if (strcmp(argv[0], "hexdump") == 0) {
+        cmd_hexdump(raw_cmd + 7);
+    } else if (strcmp(argv[0], "matrix") == 0) {
+        cmd_matrix();
+    } else if (strcmp(argv[0], "beep") == 0) {
+        speaker_beep(587, 100);
+    } else if (strcmp(argv[0], "tty") == 0) {
+        if (argc >= 2 && argv[1][0] >= '1' && argv[1][0] <= '4') {
+            tty_switch(argv[1][0] - '1');
+        } else {
+            printk("Active TTY: tty%d (Switch with 'tty 1-4' or Alt+F1-F4)\n", tty_get_current() + 1);
+        }
+    } else if (strcmp(argv[0], "history") == 0) {
+        for (int i = 0; i < history_count; i++) {
+            int idx = (history_head - history_count + i + HISTORY_SIZE) % HISTORY_SIZE;
+            printk("  %2d: %s\n", i + 1, history[idx]);
+        }
+    } else if (strcmp(argv[0], "clear") == 0 || strcmp(argv[0], "cls") == 0) {
+        tty_clear();
+    } else if (strcmp(argv[0], "reboot") == 0) {
+        printk(ANSI_YELLOW "Rebooting...\n" ANSI_RESET);
+        pit_sleep(200);
+        outb(0x64, 0xFE);
+    } else if (strcmp(argv[0], "shutdown") == 0 || strcmp(argv[0], "poweroff") == 0) {
+        printk(ANSI_YELLOW "System halted.\n" ANSI_RESET);
+        outw(0x604, 0x2000);
+        outw(0xB004, 0x2000);
+        while (1) hlt();
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
 static void shell_process(const char* cmd) {
     while (*cmd == ' ') cmd++;
     if (*cmd == '\0') return;
@@ -284,42 +358,8 @@ static void shell_process(const char* cmd) {
         return;
     }
 
-    // 2. Builtins
-    if (strcmp(argv[0], "help") == 0) {
-        cmd_help();
-    } else if (strcmp(argv[0], "neofetch") == 0 || strcmp(argv[0], "version") == 0) {
-        cmd_neofetch();
-    } else if (strcmp(argv[0], "calc") == 0) {
-        cmd_calc(cmd + 4);
-    } else if (strcmp(argv[0], "hexdump") == 0) {
-        cmd_hexdump(cmd + 7);
-    } else if (strcmp(argv[0], "matrix") == 0) {
-        cmd_matrix();
-    } else if (strcmp(argv[0], "beep") == 0) {
-        speaker_beep(587, 100);
-    } else if (strcmp(argv[0], "tty") == 0) {
-        if (argc >= 2 && argv[1][0] >= '1' && argv[1][0] <= '4') {
-            tty_switch(argv[1][0] - '1');
-        } else {
-            printk("Active TTY: tty%d (Switch with 'tty 1-4' or Alt+F1-F4)\n", tty_get_current() + 1);
-        }
-    } else if (strcmp(argv[0], "history") == 0) {
-        for (int i = 0; i < history_count; i++) {
-            int idx = (history_head - history_count + i + HISTORY_SIZE) % HISTORY_SIZE;
-            printk("  %2d: %s\n", i + 1, history[idx]);
-        }
-    } else if (strcmp(argv[0], "clear") == 0 || strcmp(argv[0], "cls") == 0) {
-        tty_clear();
-    } else if (strcmp(argv[0], "reboot") == 0) {
-        printk(ANSI_YELLOW "Rebooting...\n" ANSI_RESET);
-        pit_sleep(200);
-        outb(0x64, 0xFE);
-    } else if (strcmp(argv[0], "shutdown") == 0 || strcmp(argv[0], "poweroff") == 0) {
-        printk(ANSI_YELLOW "System halted.\n" ANSI_RESET);
-        outw(0x604, 0x2000);
-        outw(0xB004, 0x2000);
-        while (1) hlt();
-    } else {
+    // 2. Builtins (shared with the desktop terminal)
+    if (!shell_execute_builtin(cmd, argc, argv, true)) {
         printk(ANSI_RED "Unknown command: %s. Type 'help' or 'lazybox'.\n" ANSI_RESET, argv[0]);
     }
 }

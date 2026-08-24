@@ -127,8 +127,8 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             kernel/signal.c kernel/workqueue.c kernel/tsc.c kernel/vt_art.c \
             kernel/sub/sub_runtime.c kernel/sub/sub_vm.c \
             kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c \
-            lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c \
-            init/cmdline.c init/service.c usr/initramfs.c block/block.c block/elevator.c \
+            lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c lib/font8x8.c \
+            init/cmdline.c init/service.c init/bootlogo.c init/logo_data.c usr/initramfs.c block/block.c block/elevator.c \
             ipc/sem.c ipc/shm.c ipc/shm_posix.c ipc/pipe.c ipc/ipc.c ipc/msg.c \
             crypto/sha256.c crypto/md5.c crypto/crc32.c crypto/prng.c sound/beep.c
 

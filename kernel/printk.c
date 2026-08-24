@@ -12,6 +12,26 @@ static size_t dmesg_head = 0;
 static size_t dmesg_total = 0;
 static spinlock_t printk_lock = SPINLOCK_INIT;
 
+// Console redirection state. `sink_active` guards against a sink that calls
+// printk itself, which would otherwise recurse until the stack ran out.
+static printk_sink_fn_t sink_fn = NULL;
+static void*            sink_ctx = NULL;
+static bool             sink_active = false;
+
+void printk_set_sink(printk_sink_fn_t fn, void* ctx) {
+    sink_fn  = fn;
+    sink_ctx = ctx;
+}
+
+void printk_clear_sink(void) {
+    sink_fn  = NULL;
+    sink_ctx = NULL;
+}
+
+bool printk_has_sink(void) {
+    return sink_fn != NULL;
+}
+
 void printk_init(void) {
     memset(dmesg_buffer, 0, sizeof(dmesg_buffer));
     dmesg_head = 0;
@@ -42,8 +62,14 @@ int vprintk(const char* fmt, va_list args) {
         len -= 2;
     }
 
-    // 1. Output to active TTY console
-    tty_write(display_ptr, (size_t)len);
+    // 1. Output to the active TTY console, or to the installed sink instead.
+    if (sink_fn && !sink_active) {
+        sink_active = true;
+        sink_fn(display_ptr, (size_t)len, sink_ctx);
+        sink_active = false;
+    } else if (!sink_fn) {
+        tty_write(display_ptr, (size_t)len);
+    }
 
     // 2. Output to serial console (COM1 on x86, PL011 on ARM/AArch64)
 #if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)

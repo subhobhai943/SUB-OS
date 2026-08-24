@@ -1,4 +1,5 @@
 #include <drivers/fb.h>
+#include <lib/font8x8.h>
 #include <lib/string.h>
 #include <kernel/printk.h>
 
@@ -41,9 +42,22 @@ void fb_clear(uint32_t color) {
 }
 
 void fb_draw_char(uint32_t x, uint32_t y, char c, uint32_t fg, uint32_t bg) {
-    (void)c;
-    fb_draw_rect(x, y, 8, 16, bg);
-    fb_draw_rect(x + 2, y + 2, 4, 12, fg);
+    const uint8_t* glyph = font8x8_glyph(c);
+
+    // A background of 0 means "leave what is already there", which lets the
+    // boot splash draw status text straight over its gradient.
+    bool opaque = (bg != 0);
+
+    for (uint32_t row = 0; row < FONT8X8_HEIGHT; row++) {
+        uint8_t bits = glyph[row];
+        for (uint32_t col = 0; col < FONT8X8_WIDTH; col++) {
+            if (bits & (0x80u >> col)) {
+                fb_put_pixel(x + col, y + row, fg);
+            } else if (opaque) {
+                fb_put_pixel(x + col, y + row, bg);
+            }
+        }
+    }
 }
 
 void fb_draw_string(uint32_t x, uint32_t y, const char* str, uint32_t fg, uint32_t bg) {
