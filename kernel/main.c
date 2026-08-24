@@ -88,6 +88,7 @@
 #include <init/service.h>
 #include <init/version.h>
 #include <init/bootlogo.h>
+#include <drivers/fbcon.h>
 #include <userland/lazybox.h>
 #include <userland/sh.h>
 #include <userland/shell.h>
@@ -135,6 +136,11 @@ static void subos_modular_core_boot(void) {
     // The ASCII logo printed at the top of boot covers the default case.
     if (init_has_param("splash") && !init_has_param("nosplash")) {
         boot_logo_splash_begin();
+    } else {
+        // The adapter is in graphics mode from here on, so the VGA text buffer
+        // is no longer scanned out. Move the console to the framebuffer or the
+        // rest of the boot log is visible only on the serial line.
+        fbcon_enable(true);
     }
 
     // Network Subsystem, NetFilter, HTTPD & SSH Server
@@ -248,6 +254,7 @@ static void subos_modular_core_boot(void) {
 
     // Return the screen to the console before handing over to the shell.
     boot_logo_splash_end();
+    fbcon_enable(true);
 
     // Launch Shell
     shell_run();
