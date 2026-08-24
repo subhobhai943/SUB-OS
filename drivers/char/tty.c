@@ -1,4 +1,5 @@
 #include <drivers/tty.h>
+#include <drivers/fbcon.h>
 #include <drivers/vga.h>
 #include <lib/string.h>
 #include <kernel/printk.h>
@@ -49,6 +50,14 @@ static void tty_scroll(tty_t* t) {
 }
 
 void tty_clear(void) {
+    // While the framebuffer console owns the display, the VGA text buffer is
+    // no longer scanned out, so clearing it would be invisible.
+    if (fbcon_is_active()) {
+        fbcon_clear();
+        printk("\033[2J\033[H");   // Keep the serial terminal in step
+        return;
+    }
+
     tty_t* t = &ttys[current_tty];
     for (int y = 0; y < TTY_HEIGHT; y++) {
         for (int x = 0; x < TTY_WIDTH; x++) {
@@ -64,6 +73,14 @@ void tty_clear(void) {
 }
 
 void tty_set_cursor(int row, int col) {
+    if (fbcon_is_active()) {
+        fbcon_set_cursor(row, col);
+        // Mirror the move to serial so a remote terminal tracks full-screen
+        // programs such as the nano editor.
+        printk("\033[%d;%dH", row + 1, col + 1);
+        return;
+    }
+
     tty_t* t = &ttys[current_tty];
     t->cursor_row = row;
     t->cursor_col = col;

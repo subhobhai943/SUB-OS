@@ -1,5 +1,6 @@
 // Bochs / QEMU VBE Display Adapter Driver for SUB-OS
 #include <drivers/bochs.h>
+#include <init/init.h>
 #include <arch/x86_64/io.h>
 #include <drivers/pci.h>
 #include <drivers/fb.h>
@@ -7,6 +8,8 @@
 #include <kernel/printk.h>
 
 static bochs_vbe_info_t vbe_info;
+
+static bool g_vbe_enabled = false;
 
 static void vbe_write(uint16_t index, uint16_t data) {
     outw(VBE_DISPI_IOPORT_INDEX, index);
@@ -16,6 +19,43 @@ static void vbe_write(uint16_t index, uint16_t data) {
 static uint16_t vbe_read(uint16_t index) {
     outw(VBE_DISPI_IOPORT_INDEX, index);
     return inw(VBE_DISPI_IOPORT_DATA);
+}
+
+// Parse `video=WIDTHxHEIGHT` from the kernel command line. Falls back to the
+// caller's request when the parameter is absent or malformed.
+static void vbe_mode_from_cmdline(uint32_t* width, uint32_t* height) {
+    const char* spec = init_get_param("video");
+    if (!spec) return;
+
+    uint32_t w = 0, h = 0;
+    const char* p = spec;
+
+    while (*p >= '0' && *p <= '9') w = w * 10 + (uint32_t)(*p++ - '0');
+    if (*p != 'x' && *p != 'X') return;
+    p++;
+    while (*p >= '0' && *p <= '9') h = h * 10 + (uint32_t)(*p++ - '0');
+
+    // The Bochs adapter tops out at 2560x1600, and the compositor allocates a
+    // 32-bit backbuffer per surface, so refuse anything the heap cannot hold.
+    if (w < 640 || h < 480 || w > 1920 || h > 1200) {
+        printk(KERN_WARNING "VBE: ignoring unsupported video=%s\n", spec);
+        return;
+    }
+
+    *width = w;
+    *height = h;
+}
+
+void bochs_vbe_disable(void) {
+    if (!vbe_info.available) return;
+
+    vbe_write(VBE_DISPI_INDEX_ENABLE, VBE_DISPI_DISABLED);
+    g_vbe_enabled = false;
+    fb_set_active(false);
+}
+
+bool bochs_vbe_is_enabled(void) {
+    return g_vbe_enabled;
 }
 
 int bochs_vbe_set_mode(uint32_t width, uint32_t height, uint32_t bpp) {
@@ -30,6 +70,7 @@ int bochs_vbe_set_mode(uint32_t width, uint32_t height, uint32_t bpp) {
     vbe_info.current_width = width;
     vbe_info.current_height = height;
     vbe_info.current_bpp = bpp;
+    g_vbe_enabled = true;
 
     // Connect global Framebuffer driver directly to hardware video memory
     fb_set_hardware_lfb((uint32_t*)vbe_info.lfb_phys_addr, width, height, (uint8_t)bpp);
@@ -41,6 +82,8 @@ int bochs_vbe_set_mode(uint32_t width, uint32_t height, uint32_t bpp) {
 
 bool bochs_vbe_init(void) {
     memset(&vbe_info, 0, sizeof(vbe_info));
+
+    uint32_t mode_w = 800, mode_h = 600;
 
     // Probe VBE DISPI interface
     uint16_t id = vbe_read(VBE_DISPI_INDEX_ID);
@@ -58,7 +101,8 @@ bool bochs_vbe_init(void) {
             vbe_info.lfb_phys_addr = 0xFD000000;
         }
 
-        bochs_vbe_set_mode(800, 600, 32);
+        vbe_mode_from_cmdline(&mode_w, &mode_h);
+        bochs_vbe_set_mode(mode_w, mode_h, 32);
 
         printk(KERN_INFO "VBE: Bochs/QEMU VBE Display Adapter detected (v%04x, Linear Framebuffer: 0x%llx)\n",
                vbe_info.vbe_version, vbe_info.lfb_phys_addr);
@@ -69,7 +113,8 @@ bool bochs_vbe_init(void) {
     vbe_info.available = true;
     vbe_info.vbe_version = 0xB0C5;
     vbe_info.lfb_phys_addr = 0xFD000000;
-    bochs_vbe_set_mode(800, 600, 32);
+    vbe_mode_from_cmdline(&mode_w, &mode_h);
+    bochs_vbe_set_mode(mode_w, mode_h, 32);
 
     printk(KERN_INFO "VBE: Standard VESA/VBE Display Engine online (800x600 32bpp TrueColor)\n");
     return true;

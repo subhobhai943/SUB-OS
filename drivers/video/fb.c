@@ -23,6 +23,10 @@ const fb_info_t* fb_get_info(void) {
     return &fb_info;
 }
 
+void fb_set_active(bool active) {
+    fb_info.active = active;
+}
+
 void fb_set_hardware_lfb(uint32_t* lfb_addr, uint32_t width, uint32_t height, uint8_t bpp) {
     if (lfb_addr) {
         fb_info.address = lfb_addr;

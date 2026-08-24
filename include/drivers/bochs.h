@@ -36,6 +36,12 @@ typedef struct {
 bool bochs_vbe_init(void);
 bool bochs_vbe_is_available(void);
 int  bochs_vbe_set_mode(uint32_t width, uint32_t height, uint32_t bpp);
+
+// Leave graphics and hand the adapter back to VGA text mode. Disabling the
+// DISPI interface restores the mode the BIOS left behind, which is what makes
+// the 80x25 console visible again after a desktop session ends.
+void bochs_vbe_disable(void);
+bool bochs_vbe_is_enabled(void);
 const bochs_vbe_info_t* bochs_vbe_get_info(void);
 
 #endif // _DRIVERS_BOCHS_H
