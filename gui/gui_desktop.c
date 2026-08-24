@@ -10,6 +10,7 @@
 #include <gui/gui_cursor.h>
 #include <gui/gui_wm.h>
 #include <gui/gui_apps.h>
+#include <gui/gui_terminal.h>
 #include <gui/gui_apps_ext.h>
 #include <gui/gui_widgets.h>
 #include <gui/gui_icons.h>
@@ -43,7 +44,7 @@ typedef struct {
 
 // Launchers used by both the icon grid and the start menu.
 static const desktop_app_t g_apps[] = {
-    { "Terminal",   GUI_ICON_TERMINAL, gui_app_terminal_launch,  30,  40, 440, 280 },
+    { "Terminal",   GUI_ICON_TERMINAL, gui_app_terminal_launch,  30,  40, 560, 340 },
     { "Files",      GUI_ICON_FOLDER,   gui_app_fileman_launch,   80,  70, 380, 240 },
     { "Monitor",    GUI_ICON_MONITOR,  gui_app_sysmon_launch,   420,  40, 340, 240 },
     { "Tasks",      GUI_ICON_TASKS,    gui_app_taskmgr_launch,  180,  60, 380, 300 },
@@ -549,7 +550,7 @@ int gui_desktop_run(void) {
 
     // Open a default session so the desktop is not empty on first boot.
     gui_app_sysmon_launch(430, 30, 340, 240);
-    gui_app_terminal_launch(30, 40, 380, 260);
+    gui_app_terminal_launch(30, 40, 560, 340);
 
     // Discard anything the console left in the keyboard queue; a stale key
     // arriving on frame 0 would otherwise act as a desktop shortcut.

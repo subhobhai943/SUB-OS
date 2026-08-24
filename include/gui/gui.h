@@ -7,6 +7,7 @@
 #include <gui/gui_wm.h>
 #include <gui/gui_desktop.h>
 #include <gui/gui_apps.h>
+#include <gui/gui_terminal.h>
 #include <gui/gui_apps_ext.h>
 #include <gui/gui_widgets.h>
 #include <gui/gui_icons.h>

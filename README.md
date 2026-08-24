@@ -41,12 +41,19 @@
 - 🧪 **In-Kernel Test Harness (`kernel/ktest.c`)**:
   - KUnit-style suites with assertion macros, per-case pass/fail reporting and timing.
   - **6 built-in suites, 21 cases, 735 assertions** covering rbtree, kfifo, hashtable, RCU, futex, wait queues, page cache and libcore — runnable from the shell (`ktest`) or the desktop KTest Runner.
+- 🎨 **Boot Logo & Splash Screen (`init/bootlogo.c`, `scripts/mklogo.py`)**:
+  - **Two presentations of one artwork**: an ASCII rendition on the text console and serial line from the first moments of boot, then the real bitmap as a graphical splash once the video driver is up at step [5/14].
+  - **4-bit palette-indexed asset**: 160x160 pixels in 12.5 KB rather than 100 KB, with a transparency mask so the mark composites onto the gradient instead of a flat rectangle.
+  - **Animated progress bar** tied to the real boot stages, held for a minimum duration (`splashtime=<ms>`) so a sub-second boot still shows it; `nosplash`, `nogui` or `text` skip it.
+  - **Regenerable**: `python3 scripts/mklogo.py path/to/logo.png` rewrites `init/logo_data.c` from source artwork.
+- 🔤 **Shared 8x8 Console Font (`lib/font8x8.c`)**: one glyph table behind the framebuffer console, the 2D canvas rasterizer and the desktop compositor, replacing three divergent private copies.
 - 🖥️ **SUB-OS Graphical Desktop Environment (`gui/`)**:
   - **SUB-WM Compositor**: 800x600 TrueColor double-buffered window manager with drag, corner resize, minimize/maximize/restore, edge snapping (left/right/maximize), tile and cascade layouts, and z-ordered painter's-algorithm compositing.
   - **SUB-WT Widget Toolkit (`gui/gui_widgets.c`)**: Immediate-mode controls -- buttons, labels, checkboxes, radios, sliders, list boxes, text fields, tab bars, scrollbars, progress bars, sparklines and badges -- so an app rebuilds its interface from state each frame instead of maintaining a retained widget tree.
   - **Icon Set (`gui/gui_icons.c`)**: 14 hand-drawn 16x16 palette-indexed glyphs, integer-scalable and tintable, driving the desktop grid, start menu and window chrome.
   - **Modal Dialog Layer (`gui/gui_dialog.c`)**: Info, warning, error and confirm dialogs that dim the desktop and take exclusive input, with word-wrapped messages and callback results.
   - **Desktop Shell (`gui/gui_desktop.c`)**: Gradient wallpaper with grid overlay, launcher icon grid, start menu, right-click context menu (tile / cascade / toggle grid), and a taskbar with per-window buttons, live CPU trace, memory badge and RTC clock.
+  - **Terminal Emulator (`gui/gui_terminal.c`)**: dispatches to the real LazyBox applet table and the shared shell builtins, capturing each command's `printk` output through a console sink. ANSI colours are translated per line, CP437 box and block characters fall back to ASCII, and there is 256 lines of scrollback plus command history.
   - **Applications**: Terminal, File Explorer, System Monitor, Task Manager, Kernel Log viewer (live dmesg with severity colouring and scrollback), KTest Runner (drives the in-kernel suites and reports pass/fail), Text Editor, Calculator, Paint Studio, Clock & Calendar, Settings and About.
   - **Keyboard Shortcuts**: `F5` cycle focus, `F6` cascade, `F7` tile, `F8` maximize, `F9` minimize, `Esc` exit to the kernel TTY.
 - ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:

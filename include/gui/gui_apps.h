@@ -2,8 +2,8 @@
 #define _GUI_APPS_H
 
 #include <gui/gui_wm.h>
+#include <gui/gui_terminal.h>
 
-void gui_app_terminal_launch(int x, int y, int w, int h);
 void gui_app_sysmon_launch(int x, int y, int w, int h);
 void gui_app_fileman_launch(int x, int y, int w, int h);
 void gui_app_calc_launch(int x, int y, int w, int h);
