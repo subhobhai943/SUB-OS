@@ -310,6 +310,13 @@ else
     OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(S_OBJS) $(C_OBJS))
 endif
 
+# Generated dependency files, one per object. The include lives at the very
+# end of this file: a .d file's first rule would otherwise become make's
+# default goal and turn a bare `make` into a no-op.
+DEPS = $(C_OBJS:.o=.d) $(CPP_OBJS:.o=.d) $(S_OBJS:.o=.d)
+
+.DEFAULT_GOAL := all
+
 .PHONY: all clean run debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
 
 all: $(TARGET)
@@ -335,15 +342,19 @@ armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig:
 # -----------------------------------------------------------------------------
 # Compilation Rules
 # -----------------------------------------------------------------------------
+# Header dependency tracking: without this a header change leaves stale objects
+# behind, and a struct layout edit silently corrupts every unrebuilt caller.
+DEPFLAGS = -MMD -MP
+
 # C Source Files
 $(BUILD_DIR)/%.o: %.c include/config/autoconf.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # C++ Source Files
 $(BUILD_DIR)/%.o: %.cpp include/config/autoconf.h
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # x86_64 NASM Assembly Files
 $(BUILD_DIR)/%.o: %.asm
@@ -353,7 +364,7 @@ $(BUILD_DIR)/%.o: %.asm
 # ARM/AArch64 GNU Assembly Files (.S)
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Rust Source Compilation
 $(RUST_LIB): rust/src/lib.rs $(RUST_SRCS)
@@ -449,3 +460,5 @@ help:
 
 clean:
 	rm -rf $(BUILD_DIR) $(IMAGE)
+
+-include $(DEPS)

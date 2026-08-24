@@ -27,6 +27,20 @@
 
 ## 🌟 Key Architecture & Capabilities
 
+- 🧵 **Kernel Concurrency Core (`kernel/wait.c`, `kernel/futex.c`, `kernel/rcu.c`)**:
+  - **Wait Queues & Completions**: Sleeper parking with timed waits, one-shot completion barriers, and a static entry pool so a blocking path never re-enters the allocator (`waitinfo`).
+  - **Futex Hash Table**: 32 buckets with value re-check on the slow path, requeue support, and an `fmutex_t` sleeping mutex built on the uncontended-fastpath protocol (`futexinfo`).
+  - **Tiny RCU**: Lock-free readers with nesting depth tracking, deferred `call_rcu`/`kfree_rcu` callbacks, grace-period accounting, and `rcu_assign_pointer`/`rcu_dereference` publish barriers (`rcuinfo`).
+- 🧱 **Core Data Structures (`lib/rbtree.c`, `lib/kfifo.c`, `lib/hashtable.c`)**:
+  - **Red-Black Tree**: Linux-compatible parent-pointer rbtree with full insert/erase rebalancing, forward and reverse in-order iteration, and a black-height invariant validator.
+  - **kfifo Ring Buffer**: Power-of-two byte ring with free-running indices, so the wrap path costs one mask instead of a branch per byte.
+  - **Hash Table**: Separately-chained FNV-1a table with string or `u64` keys and rehash-on-growth at a 3/4 load factor.
+- 💾 **Block Page Cache (`mm/page_cache.c`)**:
+  - Write-back cache of 4 KB pages keyed by `(device, page index)`, indexed through the kernel hash table.
+  - CLOCK second-chance eviction with dirty write-back, pinning, per-device flush and invalidate, and live hit-rate telemetry (`pagecache`).
+- 🧪 **In-Kernel Test Harness (`kernel/ktest.c`)**:
+  - KUnit-style suites with assertion macros, per-case pass/fail reporting and timing.
+  - **6 built-in suites, 21 cases, 735 assertions** covering rbtree, kfifo, hashtable, RCU, futex, wait queues, page cache and libcore — runnable from the shell (`ktest`) or the desktop KTest Runner.
 - ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:
   - **Bare-Metal C++ Runtime**: `operator new`/`delete`, sized deallocation, placement `new`, pure virtual handlers (`__cxa_pure_virtual`), and `.init_array` global constructor dispatcher.
   - **Modern Generic Containers**: Pure freestanding `Vector<T>`, `UniquePtr<T>` (with polymorphic converting constructors and custom deleters), dynamic `String`, and move semantics (`kernel::move`, `kernel::forward`).
@@ -85,6 +99,8 @@
 - 🧰 **LazyBox Userland Suite (85+ Linux, Rust, C++ & SUB-Lang Applets)**:
   - Interactive shell with history, quote-aware tokenization, tab autocompletion, ANSI cursor editing, and script runner (`sh`).
   - GNU-compatible **Nano** visual text editor.
+  - **Text Processing Suite (`userland/lazybox/coreutils.c`)**: `sort`, `uniq`, `cut`, `tr`, `rev`, `tac`, `nl`, `seq`, `diff`, `xxd`, `du`, `factor`, `sum` and `truncate`, all reading through the VFS and handling the zero-length synthetic nodes procfs and sysfs expose.
+  - **Kernel Diagnostics**: `ktest`, `rcuinfo`, `futexinfo`, `waitinfo` and `pagecache`.
   - Full utilities: `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `pwd`, `cd`, `tree`, `find`, `wc`, `head`, `tail`, `stat`, `df`, `mkfs.vfat`, `hexdump`, `neofetch`, `uname`, `free`, `uptime`, `top`, `ps`, `pstree`, `kill`, `dmesg`, `netstat`, `ifconfig`, `ping`, `traceroute`, `curl`, `ssh`, `tts`, `alsamixer`, `sensors`, `rustinfo`, `chacha20`, `sha3sum`, `base64`, `cryptobench`, `fdisk`, `rfilter`, `dcache`, `watchdog`, `jsonquery`, `subinfo`, `subi`, `subpower`, `subbench`, `subquote`, `cppinfo`, `cpptest`, `snake`, and more.
 
 ---
