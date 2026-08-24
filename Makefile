@@ -126,7 +126,8 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             kernel/syslog.c kernel/module.c kernel/kobject.c kernel/metrics.c kernel/namespace.c \
             kernel/signal.c kernel/workqueue.c kernel/tsc.c kernel/vt_art.c \
             kernel/sub/sub_runtime.c kernel/sub/sub_vm.c \
-            lib/string.c lib/vsprintf.c lib/bitmap.c \
+            kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c \
+            lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c \
             init/cmdline.c init/service.c usr/initramfs.c block/block.c block/elevator.c \
             ipc/sem.c ipc/shm.c ipc/shm_posix.c ipc/pipe.c ipc/ipc.c ipc/msg.c \
             crypto/sha256.c crypto/md5.c crypto/crc32.c crypto/prng.c sound/beep.c
@@ -170,7 +171,7 @@ endif
 CONFIG_SRCS-y := $(CORE_SRCS)
 
 ifeq ($(CONFIG_MM_PMM), y)
-    CONFIG_SRCS-y += mm/pmm.c mm/kmalloc.c
+    CONFIG_SRCS-y += mm/pmm.c mm/kmalloc.c mm/page_cache.c
 endif
 ifeq ($(CONFIG_MM_SLAB), y)
     CONFIG_SRCS-y += mm/slab.c
@@ -279,7 +280,7 @@ CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.
 
 # Userland
 ifeq ($(CONFIG_USERLAND_LAZYBOX), y)
-    CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c userland/lazybox/snake.c userland/lazybox/tree.c
+    CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c userland/lazybox/snake.c userland/lazybox/tree.c userland/lazybox/coreutils.c
 endif
 
 # Deduplicate

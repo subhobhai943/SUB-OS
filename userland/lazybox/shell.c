@@ -25,7 +25,10 @@ static const char* shell_builtins[] = {
     "nslookup", "hdparm", "lspci", "speaker", "mouse", "virtinfo",
     "io_uring_test", "uname", "free", "uptime", "dmesg", "ps", "top",
     "sleep", "reboot", "poweroff", "clear", "help", "neofetch", "calc",
-    "matrix", "history", "tty", "beep", "shutdown", NULL
+    "matrix", "history", "tty", "beep", "shutdown",
+    "ktest", "rcuinfo", "futexinfo", "waitinfo", "pagecache",
+    "sort", "uniq", "cut", "tr", "rev", "tac", "nl", "seq", "diff",
+    "xxd", "du", "factor", "sum", "truncate", NULL
 };
 
 static void history_add(const char* cmd) {
@@ -81,7 +84,17 @@ static void cmd_help(void) {
     printk("    " ANSI_GREEN "dmesg / ps / top" ANSI_RESET "   - Kernel boot log & process manager\n");
     printk("    " ANSI_GREEN "calc [A] [op] [B]" ANSI_RESET " - Arithmetic calculator (+, -, *, /, %%)\n");
     printk("    " ANSI_GREEN "matrix" ANSI_RESET "             - Digital rain screen animation\n");
-    printk("    " ANSI_GREEN "reboot / shutdown" ANSI_RESET "   - Power management\n");
+    printk("    " ANSI_GREEN "reboot / shutdown" ANSI_RESET "   - Power management\n\n");
+    printk(ANSI_YELLOW "  [Kernel Core Diagnostics]\n" ANSI_RESET);
+    printk("    " ANSI_GREEN "ktest [suite]" ANSI_RESET "      - Run in-kernel self-test suites (KUnit-style)\n");
+    printk("    " ANSI_GREEN "rcuinfo / futexinfo" ANSI_RESET " - Tiny RCU grace periods & futex buckets\n");
+    printk("    " ANSI_GREEN "waitinfo" ANSI_RESET "           - Wait queue sleepers and wakeup counters\n");
+    printk("    " ANSI_GREEN "pagecache [sync]" ANSI_RESET "   - Block page cache residency & hit rate\n\n");
+    printk(ANSI_YELLOW "  [Text Processing Suite]\n" ANSI_RESET);
+    printk("    " ANSI_GREEN "sort / uniq / nl" ANSI_RESET "   - Sort, de-duplicate and number lines\n");
+    printk("    " ANSI_GREEN "cut / tr / rev / tac" ANSI_RESET " - Column, character and order transforms\n");
+    printk("    " ANSI_GREEN "diff / xxd / sum" ANSI_RESET "   - Compare, hex-dump and checksum files\n");
+    printk("    " ANSI_GREEN "seq / factor / du" ANSI_RESET "  - Number sequences, factoring, disk usage\n");
     printk(ANSI_BRIGHT_BLACK "Tip: Use TAB for autocomplete, Up/Down for command history.\n" ANSI_RESET);
 }
 
