@@ -27,6 +27,12 @@
 
 ## 🌟 Key Architecture & Capabilities
 
+- 🎨 **Boot Logo & Splash Screen (`init/bootlogo.c`, `scripts/mklogo.py`)**:
+  - **ASCII rendition** on the text console and serial line from the first moments of boot, before any display driver exists.
+  - **Optional graphical splash**: pass `splash` on the kernel command line to show the bitmap logo with an animated progress bar once the framebuffer is up. It is off by default on this branch so the text console stays visible; `splashtime=<ms>` tunes how long it is held.
+  - **4-bit palette-indexed asset**: 160x160 pixels in 12.5 KB rather than 100 KB, with a transparency mask so the mark composites onto the background instead of a flat rectangle.
+  - **Regenerable**: `python3 scripts/mklogo.py path/to/logo.png` rewrites `init/logo_data.c` from source artwork.
+- 🔤 **Shared 8x8 Console Font (`lib/font8x8.c`)**: one glyph table behind the framebuffer console and the 2D canvas rasterizer, replacing divergent private copies.
 - 🧵 **Kernel Concurrency Core (`kernel/wait.c`, `kernel/futex.c`, `kernel/rcu.c`)**:
   - **Wait Queues & Completions**: Sleeper parking with timed waits, one-shot completion barriers, and a static entry pool so a blocking path never re-enters the allocator (`waitinfo`).
   - **Futex Hash Table**: 32 buckets with value re-check on the slow path, requeue support, and an `fmutex_t` sleeping mutex built on the uncontended-fastpath protocol (`futexinfo`).
