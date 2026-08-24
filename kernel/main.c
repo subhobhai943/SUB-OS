@@ -89,6 +89,7 @@
 #include <init/init.h>
 #include <init/service.h>
 #include <init/version.h>
+#include <init/bootlogo.h>
 #include <userland/lazybox.h>
 #include <userland/sh.h>
 #include <userland/shell.h>
@@ -130,8 +131,19 @@ static void subos_modular_core_boot(void) {
     tsc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
+    // The framebuffer exists from here on, so raise the graphical splash
+    // unless the boot was asked for a text console. Remaining boot messages
+    // keep flowing to the serial line and the dmesg ring.
+    bool want_splash = !(init_has_param("nogui") || init_has_param("text") ||
+                         init_has_param("emergency") || init_has_param("single") ||
+                         init_has_param("nosplash"));
+    if (want_splash) {
+        boot_logo_splash_begin();
+    }
+
     // Network Subsystem, NetFilter, HTTPD & SSH Server
     printk(KERN_INFO "[6/14] Initializing Network Stack, NetFilter, HTTPD & SSHD... ");
+    boot_logo_splash_progress(40, "Bringing up the network stack");
     filter_init();
     httpd_init();
     sshd_init();
@@ -168,6 +180,7 @@ static void subos_modular_core_boot(void) {
 
     // Crypto, Certificates, LSM Security, Authentication, Namespaces, Rust, SUB-Lang & C++ Subsystems
     printk(KERN_INFO "[8/14] Initializing Rust, C++ Core, SUB-Lang Engine, Keyring & Auth... ");
+    boot_logo_splash_progress(55, "Starting Rust, C++ and SUB-Lang engines");
     rust_kernel_init();
     cpp_kernel_init();
     sub_kernel_init();
@@ -180,6 +193,7 @@ static void subos_modular_core_boot(void) {
 
     // Concurrency Primitives: Wait Queues, Futexes & Tiny RCU
     printk(KERN_INFO "[9/14] Initializing Wait Queues, Futex Hash & Tiny RCU... ");
+    boot_logo_splash_progress(65, "Initializing concurrency primitives");
     wait_subsystem_init();
     futex_init();
     rcu_init();
@@ -198,6 +212,7 @@ static void subos_modular_core_boot(void) {
 
     // Virtual File System & Multi-Filesystem Support
     printk(KERN_INFO "[11/14] Mounting Virtual File System (VFS, devfs, procfs, sysfs)... ");
+    boot_logo_splash_progress(78, "Mounting the virtual file system");
     vfs_init();
     sysfs_init();
     kobject_subsystem_init();
@@ -208,6 +223,7 @@ static void subos_modular_core_boot(void) {
 
     // Kernel Core: Signals, Modules, Syscalls, Tracing, Syslog, Metrics, Crond & Systemd
     printk(KERN_INFO "[12/14] Initializing Syslog, Metrics, Cron, Tracing, BPF & Services... ");
+    boot_logo_splash_progress(88, "Starting kernel services");
     signal_init();
     workqueue_init();
     syscall_init();
@@ -222,6 +238,7 @@ static void subos_modular_core_boot(void) {
 
     // Preemptive Multi-Tasking & Userland
     printk(KERN_INFO "[13/14] Initializing Preemptive Task Scheduler & LazyBox... ");
+    boot_logo_splash_progress(95, "Starting the scheduler and userland");
     sched_init();
     lazybox_init();
     ktest_init();
@@ -239,9 +256,11 @@ static void subos_modular_core_boot(void) {
 
     if (!emergency_text) {
         printk(KERN_INFO "INIT: Booting directly into SUB-OS Graphical Desktop Environment...\n");
+        boot_logo_splash_end();
         gui_start_desktop();
         printk(KERN_INFO "INIT: GUI session closed. Entering Emergency Kernel TTY Mode.\n");
     } else {
+        boot_logo_splash_end();
         printk(KERN_INFO "INIT: Emergency text/kernel TTY mode requested via boot parameters.\n");
     }
 
@@ -258,6 +277,8 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     tty_init();
     serial_init();
     printk_init();
+
+    boot_logo_print_text();
 
     printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
     printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());
@@ -289,6 +310,8 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
 void kernel_main_aarch64(void) {
     arch_early_init();
     printk_init();
+
+    boot_logo_print_text();
 
     printk(ANSI_BRIGHT_CYAN "=================================================================\n" ANSI_RESET);
     printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());

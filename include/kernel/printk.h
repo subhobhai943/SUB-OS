@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <lib/printf.h>
 
 // Linux-compatible log level prefixes
@@ -49,5 +50,21 @@ int  kprintf(const char* fmt, ...); // Alias for compatibility
 // Kernel Dmesg Ring Buffer API
 void dmesg_dump(void);
 const char* dmesg_get_buffer(size_t* size_out);
+
+// ---------------------------------------------------------------------------
+// Console redirection
+//
+// While a sink is installed, printk output is handed to the callback instead
+// of the text console, so a caller can run a subsystem that reports via printk
+// and capture what it printed. The serial console and the dmesg ring still
+// receive everything, which keeps a captured run debuggable.
+//
+// The sink must not itself call printk; re-entrant output is dropped.
+// ---------------------------------------------------------------------------
+typedef void (*printk_sink_fn_t)(const char* text, size_t len, void* ctx);
+
+void printk_set_sink(printk_sink_fn_t fn, void* ctx);
+void printk_clear_sink(void);
+bool printk_has_sink(void);
 
 #endif // _KERNEL_PRINTK_H
