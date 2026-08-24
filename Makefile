@@ -264,7 +264,7 @@ ifeq ($(CONFIG_DRV_CANVAS_2D), y)
     CONFIG_SRCS-y += drivers/video/canvas.c
 endif
 ifeq ($(CONFIG_DRV_BOCHS_VBE), y)
-    CONFIG_SRCS-y += drivers/video/bochs.c drivers/video/fb.c
+    CONFIG_SRCS-y += drivers/video/bochs.c drivers/video/fb.c drivers/video/fbcon.c
 endif
 ifeq ($(CONFIG_DRV_SOUND_HDA), y)
     CONFIG_SRCS-y += sound/hda.c sound/sound.c sound/pcm.c sound/tts.c sound/melody.c
@@ -317,7 +317,7 @@ DEPS = $(C_OBJS:.o=.d) $(CPP_OBJS:.o=.d) $(S_OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean run debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
+.PHONY: all clean run run-fullscreen debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
 
 all: $(TARGET)
 
@@ -410,6 +410,10 @@ $(IMAGE): $(BUILD_DIR)/boot/boot.bin $(BUILD_DIR)/boot/stage2.bin $(BUILD_DIR)/k
 # -----------------------------------------------------------------------------
 run qemu: $(TARGET)
 	$(QEMU_CMD)
+
+# -vga std gives the Bochs VBE adapter the kernel drives. vgamem_mb is raised
+# because a 1280x720 32-bit framebuffer needs more than the 8 MB default.
+QEMU_VGA = -device VGA,vgamem_mb=32
 
 run-gui: $(TARGET)
 ifeq ($(ARCH), x86_64)

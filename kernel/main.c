@@ -269,7 +269,7 @@ void kernel_main(void* memory_map, uint64_t memory_map_count) {
     printk(ANSI_BRIGHT_CYAN "   SUB-OS 64-Bit [%s] Modular Monolithic Kernel %s\n" ANSI_RESET, arch_get_name(), kernel_get_version());
     printk(ANSI_BRIGHT_CYAN "=================================================================\n\n" ANSI_RESET);
 
-    init_early("root=/dev/sda console=tty1 init=/bin/lazybox quiet");
+    init_early("root=/dev/sda console=tty1 init=/bin/lazybox video=1280x720 quiet");
     rtc_init();
 
     printk(KERN_INFO "[1/14] Initializing 64-Bit GDT, IDT, PIC & PIT Timer... ");

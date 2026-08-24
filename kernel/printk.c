@@ -1,5 +1,6 @@
 #include <kernel/printk.h>
 #include <drivers/tty.h>
+#include <drivers/fbcon.h>
 #include <drivers/serial.h>
 #include <lib/printf.h>
 #include <lib/string.h>
@@ -68,7 +69,13 @@ int vprintk(const char* fmt, va_list args) {
         sink_fn(display_ptr, (size_t)len, sink_ctx);
         sink_active = false;
     } else if (!sink_fn) {
-        tty_write(display_ptr, (size_t)len);
+        // The VGA text buffer stops being scanned out once the adapter is in
+        // graphics mode, so the framebuffer console takes over there.
+        if (fbcon_is_active()) {
+            fbcon_write(display_ptr, (size_t)len);
+        } else {
+            tty_write(display_ptr, (size_t)len);
+        }
     }
 
     // 2. Output to serial console (COM1 on x86, PL011 on ARM/AArch64)
