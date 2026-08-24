@@ -14,6 +14,11 @@
 #include <kernel/metrics.h>
 #include <kernel/bpf.h>
 #include <kernel/kobject.h>
+#include <kernel/wait.h>
+#include <kernel/futex.h>
+#include <kernel/rcu.h>
+#include <kernel/ktest.h>
+#include <mm/page_cache.h>
 #include <mm/vma.h>
 #include <drivers/canvas.h>
 #include <drivers/pty.h>
@@ -96,6 +101,7 @@ static void subos_modular_core_boot(void) {
     // Storage & Block Layer
     printk(KERN_INFO "[4/14] Initializing Block Layer & Storage Controllers... ");
     block_init();
+    page_cache_init();
     ramdisk_init();
 #if defined(__x86_64__)
     ata_init();
@@ -172,6 +178,13 @@ static void subos_modular_core_boot(void) {
     namespace_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
+    // Concurrency Primitives: Wait Queues, Futexes & Tiny RCU
+    printk(KERN_INFO "[9/14] Initializing Wait Queues, Futex Hash & Tiny RCU... ");
+    wait_subsystem_init();
+    futex_init();
+    rcu_init();
+    printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
+
     // Inter-Process Communication
     printk(KERN_INFO "[9/14] Initializing IPC Engine (Pipes, MsgQueues, POSIX SHM, Semaphores)... ");
     ipc_init();
@@ -211,6 +224,8 @@ static void subos_modular_core_boot(void) {
     printk(KERN_INFO "[13/14] Initializing Preemptive Task Scheduler & LazyBox... ");
     sched_init();
     lazybox_init();
+    ktest_init();
+    ktest_register_builtin_suites();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
     // Hardware Interrupts

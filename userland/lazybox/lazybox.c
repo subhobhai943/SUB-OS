@@ -38,6 +38,15 @@
 #include <kernel/tsc.h>
 #include <kernel/vt_art.h>
 #include <drivers/cpufreq.h>
+#include <userland/coreutils.h>
+#include <kernel/ktest.h>
+#include <kernel/rcu.h>
+#include <kernel/futex.h>
+#include <kernel/wait.h>
+#include <mm/page_cache.h>
+#include <lib/hashtable.h>
+#include <lib/kfifo.h>
+#include <lib/rbtree.h>
 #include <drivers/virtio_gpu.h>
 #include <drivers/e1000e.h>
 #include <drivers/virtio_input.h>
@@ -2030,6 +2039,62 @@ static int applet_sensors(int argc, char** argv) {
 }
 
 // -------------------------------------------------------------
+// Kernel Core Diagnostics: KTest, RCU, Futex, Wait Queues, Page Cache
+// -------------------------------------------------------------
+static int applet_ktest(int argc, char** argv) {
+    if (argc >= 2 && strcmp(argv[1], "-l") == 0) {
+        ktest_list_suites();
+        return 0;
+    }
+
+    ktest_result_t result;
+    int failures = (argc >= 2) ? ktest_run_suite(argv[1], &result)
+                               : ktest_run_all(&result);
+    return (failures > 0) ? 1 : 0;
+}
+
+static int applet_rcuinfo(int argc, char** argv) {
+    if (argc >= 2 && strcmp(argv[1], "-s") == 0) {
+        printk("Forcing an RCU grace period...\n");
+        rcu_synchronize();
+        printk(ANSI_BRIGHT_GREEN "Grace period #%llu completed\n" ANSI_RESET,
+               (unsigned long long)rcu_get_grace_period());
+        return 0;
+    }
+    rcu_dump();
+    return 0;
+}
+
+static int applet_futexinfo(int argc, char** argv) {
+    futex_dump();
+    return 0;
+}
+
+static int applet_waitinfo(int argc, char** argv) {
+    wait_dump_stats();
+    return 0;
+}
+
+static int applet_pagecache(int argc, char** argv) {
+    if (argc >= 2) {
+        if (strcmp(argv[1], "sync") == 0) {
+            int n = page_cache_sync();
+            printk("page cache: %d dirty page(s) written back\n", n);
+            return 0;
+        }
+        if (strcmp(argv[1], "drop") == 0) {
+            page_cache_drop_all();
+            printk("page cache: flushed and dropped all clean pages\n");
+            return 0;
+        }
+        printk("Usage: pagecache [sync|drop]\n");
+        return 1;
+    }
+    page_cache_dump();
+    return 0;
+}
+
+// -------------------------------------------------------------
 // Applet Dispatch Table (Over 70 Linux Tools)
 // -------------------------------------------------------------
 static const lazybox_applet_t applets[] = {
@@ -2186,6 +2251,29 @@ static const lazybox_applet_t applets[] = {
     {"startx",        applet_startx,        "startx",                    "Start SUB-OS Desktop GUI",   "Desktop"},
     {"gui",           applet_startx,        "gui",                       "Start SUB-OS Desktop GUI",   "Desktop"},
     {"desktop",       applet_startx,        "desktop",                   "Start SUB-OS Desktop GUI",   "Desktop"},
+
+    // Kernel Core Diagnostics
+    {"ktest",         applet_ktest,         "ktest [suite|-l]",          "Run in-kernel self-test suites", "Kernel"},
+    {"rcuinfo",       applet_rcuinfo,       "rcuinfo [-s]",              "Tiny RCU grace period status", "Kernel"},
+    {"futexinfo",     applet_futexinfo,     "futexinfo",                 "Futex hash bucket telemetry", "Kernel"},
+    {"waitinfo",      applet_waitinfo,      "waitinfo",                  "Wait queue & sleeper statistics", "Kernel"},
+    {"pagecache",     applet_pagecache,     "pagecache [sync|drop]",     "Block page cache & hit rate", "Storage"},
+
+    // Text Processing Suite (GNU coreutils compatible)
+    {"sort",          coreutils_sort,       "sort [-rnfu] <file>",       "Sort lines of a text file",  "Filesystem"},
+    {"uniq",          coreutils_uniq,       "uniq [-cdu] <file>",        "Filter adjacent duplicate lines", "Filesystem"},
+    {"cut",           coreutils_cut,        "cut -f <n> [-d c] <file>",  "Extract columns from lines", "Filesystem"},
+    {"tr",            coreutils_tr,         "tr <set1> <set2> <file>",   "Translate or delete characters", "Filesystem"},
+    {"rev",           coreutils_rev,        "rev <file>",                "Reverse characters of each line", "Filesystem"},
+    {"tac",           coreutils_tac,        "tac <file>",                "Print file lines in reverse", "Filesystem"},
+    {"nl",            coreutils_nl,         "nl [-a] <file>",            "Number the lines of a file", "Filesystem"},
+    {"seq",           coreutils_seq,        "seq [first [step]] last",   "Print a sequence of numbers", "Core"},
+    {"diff",          coreutils_diff,       "diff <file1> <file2>",      "Compare files line by line", "Filesystem"},
+    {"xxd",           coreutils_xxd,        "xxd [-l n] <file>",         "Canonical hex + ASCII dump", "Filesystem"},
+    {"du",            coreutils_du,         "du [-s] [path]",            "Estimate file space usage",  "Storage"},
+    {"factor",        coreutils_factor,     "factor <number...>",        "Print prime factorization",  "Core"},
+    {"sum",           coreutils_sum,        "sum <file>",                "BSD 16-bit rotating checksum", "Crypto"},
+    {"truncate",      coreutils_truncate,   "truncate -s <n> <file>",    "Shrink or extend a file",    "Filesystem"},
 
     {NULL, NULL, NULL, NULL, NULL}
 };
