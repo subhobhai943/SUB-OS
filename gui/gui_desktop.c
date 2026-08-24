@@ -17,6 +17,9 @@
 #include <gui/gui_dialog.h>
 #include <gui/gui_theme.h>
 #include <drivers/fb.h>
+#include <drivers/bochs.h>
+#include <drivers/fbcon.h>
+#include <drivers/tty.h>
 #include <drivers/mouse.h>
 #include <drivers/keyboard.h>
 #include <drivers/rtc.h>
@@ -74,10 +77,44 @@ static int  g_hover_menu_item = -1;
 static uint64_t g_frames = 0;
 static uint8_t  g_cpu_history[48];
 
+// The launcher geometry below is authored against an 800x600 work area.
+#define DESIGN_W 800
+#define DESIGN_H 568
+
 static void launch_app(int index) {
     if (index < 0 || index >= APP_COUNT) return;
+
     const desktop_app_t* a = &g_apps[index];
-    if (a->launch) a->launch(a->x, a->y, a->w, a->h);
+    if (!a->launch) return;
+
+    int sw = gui_gfx_get_width();
+    int wh = gui_desktop_workarea_height();
+
+    // Scale the design geometry to the live resolution, but never shrink below
+    // it: a window sized for 800x600 is already at its comfortable minimum.
+    int x = (a->x * sw) / DESIGN_W;
+    int y = (a->y * wh) / DESIGN_H;
+    int w = (a->w * sw) / DESIGN_W;
+    int h = (a->h * wh) / DESIGN_H;
+
+    if (w < a->w) w = a->w;
+    if (h < a->h) h = a->h;
+
+    // Leave the desktop breathing room: a window scaled straight from the
+    // design size swallows most of a 1280x720 screen and buries the wallpaper.
+    int max_w = (sw * 62) / 100;
+    int max_h = (wh * 72) / 100;
+    if (w > max_w) w = max_w;
+    if (h > max_h) h = max_h;
+
+    // Keep clear of the icon column so launcher labels stay readable.
+    int icon_strip = GUI_DESKTOP_ICON_W + 28;
+    if (x < icon_strip) x = icon_strip;
+    if (x + w > sw - 8) x = sw - 8 - w;
+    if (y + h > wh - 8) y = wh - 8 - h;
+    if (y < 8) y = 8;
+
+    a->launch(x, y, w, h);
 }
 
 int gui_desktop_workarea_height(void) {
@@ -119,8 +156,15 @@ void gui_desktop_render_background(void) {
     gui_gfx_draw_gradient_v(0, 0, sw, wh, 0xFF0B132B, 0xFF1C2541);
 
     if (g_show_grid) {
-        for (int y = 0; y < wh; y += 40) gui_gfx_draw_line(0, y, sw - 1, y, 0xFF141F36);
-        for (int x = 0; x < sw; x += 40) gui_gfx_draw_line(x, 0, x, wh - 1, 0xFF141F36);
+        // Blend rather than stamp a fixed colour: the gradient's lower half is
+        // lighter than any single grid tone, so a constant colour disappears
+        // there and only shows near the top of the screen.
+        for (int y = 0; y < wh; y += 40) {
+            gui_gfx_fill_rect_blend(0, y, sw, 1, GUI_COLOR_BLACK, 40);
+        }
+        for (int x = 0; x < sw; x += 40) {
+            gui_gfx_fill_rect_blend(x, 0, 1, wh, GUI_COLOR_BLACK, 40);
+        }
     }
 
     // Branding, offset to the right so it clears the icon column.
@@ -546,11 +590,12 @@ static void sample_cpu_history(void) {
 }
 
 int gui_desktop_run(void) {
+    fbcon_enable(false);
     gui_desktop_init();
 
     // Open a default session so the desktop is not empty on first boot.
-    gui_app_sysmon_launch(430, 30, 340, 240);
-    gui_app_terminal_launch(30, 40, 560, 340);
+    launch_app(2);   // System Monitor
+    launch_app(0);   // Terminal
 
     // Discard anything the console left in the keyboard queue; a stale key
     // arriving on frame 0 would otherwise act as a desktop shortcut.
@@ -632,6 +677,12 @@ int gui_desktop_run(void) {
         gui_gfx_present();
         g_frames++;
     }
+
+    // Hand the screen to the framebuffer console. Without this the shell writes
+    // into the VGA text buffer while the adapter is still scanning out the
+    // framebuffer, so the TTY is visible only on the serial line -- which is
+    // the host terminal, not the emulator window.
+    fbcon_enable(true);
 
     printk(KERN_INFO "GUI: Desktop session ended after %llu frames, TTY restored\n",
            (unsigned long long)g_frames);

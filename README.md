@@ -47,6 +47,11 @@
   - **Animated progress bar** tied to the real boot stages, held for a minimum duration (`splashtime=<ms>`) so a sub-second boot still shows it; `nosplash`, `nogui` or `text` skip it.
   - **Regenerable**: `python3 scripts/mklogo.py path/to/logo.png` rewrites `init/logo_data.c` from source artwork.
 - 🔤 **Shared 8x8 Console Font (`lib/font8x8.c`)**: one glyph table behind the framebuffer console, the 2D canvas rasterizer and the desktop compositor, replacing three divergent private copies.
+- 🖵 **Framebuffer Console (`drivers/video/fbcon.c`)**:
+  - Once the VBE adapter is in graphics mode the VGA text buffer stops being scanned out, so anything printed afterwards is invisible on the display even though it still reaches serial. fbcon renders the console into the framebuffer instead, the way Linux fbcon does.
+  - **VT100 subset**: SGR colours, cursor addressing (`H`/`f`), relative moves, erase-display and erase-line, save/restore — enough for full-screen curses-style programs such as the **nano** editor to render correctly.
+  - Presents a fixed **80x25** grid (matching `TTY_WIDTH`/`TTY_HEIGHT`, which the userland assumes) with the glyph cell scaled to fill whatever resolution is active.
+  - The TTY driver dispatches `tty_write`, `tty_clear` and `tty_set_cursor` to it, so leaving the desktop with `Esc` drops to a working console **inside the emulator**, not just on the host serial line.
 - 🖥️ **SUB-OS Graphical Desktop Environment (`gui/`)**:
   - **SUB-WM Compositor**: 800x600 TrueColor double-buffered window manager with drag, corner resize, minimize/maximize/restore, edge snapping (left/right/maximize), tile and cascade layouts, and z-ordered painter's-algorithm compositing.
   - **SUB-WT Widget Toolkit (`gui/gui_widgets.c`)**: Immediate-mode controls -- buttons, labels, checkboxes, radios, sliders, list boxes, text fields, tab bars, scrollbars, progress bars, sparklines and badges -- so an app rebuilds its interface from state each frame instead of maintaining a retained widget tree.
@@ -231,9 +236,14 @@ SUB-OS boots straight into the desktop. Pass `nogui`, `text`, `emergency` or
 from inside the desktop, `Esc` (or Start -> Exit to Kernel TTY) drops to the
 same shell.
 
+The display mode is set with `video=WIDTHxHEIGHT` on the kernel command line
+(default `1280x720`, 16:9). Both the desktop and the framebuffer console adapt
+to whatever mode is active.
+
 ```bash
-make run-gui     # Local SDL/GTK window
-make run-vnc     # Headless: VNC server on localhost:5900
+make run-gui         # Windowed, aspect-preserving scaling
+make run-fullscreen  # Fullscreen without stretching
+make run-vnc         # Headless: VNC server on localhost:5900
 ```
 
 ---
