@@ -92,6 +92,7 @@
 #include <userland/lazybox.h>
 #include <userland/sh.h>
 #include <userland/shell.h>
+#include <kernel/exec.h>
 
 static void subos_modular_core_boot(void) {
 #if defined(__x86_64__)
@@ -255,6 +256,10 @@ static void subos_modular_core_boot(void) {
     // Return the screen to the console before handing over to the shell.
     boot_logo_splash_end();
     fbcon_enable(true);
+
+    // Hand control to userland: /sbin/init is a separate static ELF that runs
+    // in ring 3 with its own page tables and talks back only through INT 0x80.
+    exec_run_builtin_init();
 
     // Launch Shell
     shell_run();

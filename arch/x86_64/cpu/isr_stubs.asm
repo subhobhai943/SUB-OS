@@ -3,6 +3,7 @@
 extern isr_handler_common
 global isr_stub_table
 global isr_stub_default
+global isr_stub_syscall
 
 %macro ISR_NOERRCODE 1
 isr_stub_%1:
@@ -70,6 +71,14 @@ ISR_NOERRCODE 44
 ISR_NOERRCODE 45
 ISR_NOERRCODE 46
 ISR_NOERRCODE 47
+
+; Software syscall gate. Reached by INT 0x80 from ring 3, so its IDT entry is
+; installed with DPL 3; the CPU switches to TSS.rsp0 on the way in, which the
+; exec path points at a kernel stack owned by the running process.
+isr_stub_syscall:
+    push qword 0        ; No error code is pushed for a software interrupt
+    push qword 128      ; Vector number, matching the IDT slot
+    jmp isr_common_stub
 
 isr_stub_default:
     push qword 0

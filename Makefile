@@ -127,6 +127,7 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             kernel/signal.c kernel/workqueue.c kernel/tsc.c kernel/vt_art.c \
             kernel/sub/sub_runtime.c kernel/sub/sub_vm.c \
             kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c \
+            kernel/elf.c kernel/exec.c \
             lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c lib/font8x8.c \
             init/cmdline.c init/service.c init/bootlogo.c init/logo_data.c usr/initramfs.c block/block.c block/elevator.c \
             ipc/sem.c ipc/shm.c ipc/shm_posix.c ipc/pipe.c ipc/ipc.c ipc/msg.c \
@@ -301,7 +302,16 @@ ifeq ($(ARCH), x86_64)
     ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
     C_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(ALL_C_SRCS))
     ASM_OBJS   = $(patsubst %.asm, $(BUILD_DIR)/%.o, $(ARCH_ASM_SRCS))
-    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS)) $(CPP_OBJS) $(RUST_LIB)
+
+    # Userland /sbin/init, linked separately and carried inside the kernel image.
+    INIT_SRC      = userland/init/init.c
+    INIT_LD       = userland/init/user.ld
+    INIT_OBJ      = $(BUILD_DIR)/userland/init/init.o
+    INIT_ELF      = $(BUILD_DIR)/userland/init/init.elf
+    INIT_BLOB_SRC = $(BUILD_DIR)/usr/init_blob.c
+    INIT_BLOB_OBJ = $(BUILD_DIR)/usr/init_blob.o
+
+    OTHER_OBJS = $(filter-out $(ENTRY_OBJ), $(ASM_OBJS) $(C_OBJS)) $(CPP_OBJS) $(INIT_BLOB_OBJ) $(RUST_LIB)
 else
     CONFIG_SRCS-y += rust/rust_fallback.c kernel/cpp/cpp_fallback.c
     ALL_C_SRCS = $(ARCH_C_SRCS) $(CONFIG_SRCS-y)
@@ -365,6 +375,33 @@ $(BUILD_DIR)/%.o: %.asm
 $(BUILD_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# Userland Program Compilation
+#
+# /sbin/init is a separate freestanding executable, not kernel code: it is
+# linked at the user base from userland/user.ld and must never see the kernel's
+# -mcmodel=kernel, which cannot reach the user half of the address space.
+USER_CFLAGS = -ffreestanding -nostdlib -fno-pie -fno-pic -mno-red-zone \
+              -mcmodel=large -mno-sse -mno-mmx -mno-sse2 \
+              -Wall -Wextra -Wno-unused-function \
+              $(if $(CONFIG_OPTIMIZATION),$(CONFIG_OPTIMIZATION),-O2)
+
+$(INIT_OBJ): $(INIT_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(INIT_ELF): $(INIT_OBJ) $(INIT_LD)
+	@mkdir -p $(dir $@)
+	$(LD) -nostdlib -no-pie -T $(INIT_LD) -o $@ $(INIT_OBJ)
+	@echo "=== [Userland init linked: $@] ==="
+
+$(INIT_BLOB_SRC): $(INIT_ELF) scripts/mkblob.py
+	@mkdir -p $(dir $@)
+	@python3 scripts/mkblob.py $(INIT_ELF) $@ subos_init_elf
+
+$(INIT_BLOB_OBJ): $(INIT_BLOB_SRC) include/config/autoconf.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Rust Source Compilation
 $(RUST_LIB): rust/src/lib.rs $(RUST_SRCS)

@@ -3,6 +3,7 @@
 #include <arch/x86_64/pic.h>
 #include <kernel/printk.h>
 #include <kernel/panic.h>
+#include <kernel/exec.h>
 #include <lib/string.h>
 
 extern void* isr_stub_table[48];
@@ -54,6 +55,26 @@ void isr_unregister_handler(uint8_t int_no) {
 
 void isr_handler_common(registers_t* regs) {
     if (regs->int_no < 32) {
+        /* A page fault reports the offending address in CR2; everything else
+         * is best described by where it was executing. */
+        uint64_t fault_addr = regs->rip;
+        if (regs->int_no == 14) {
+            __asm__ volatile("mov %%cr2, %0" : "=r"(fault_addr));
+        }
+
+        /*
+         * CS still carries the privilege level the fault was taken from. A
+         * ring 3 fault is the process's problem, not the kernel's: report it
+         * and tear that process down instead of bringing the machine down
+         * with it.
+         */
+        if ((regs->cs & 3) == 3 && uproc_current()) {
+            printk(KERN_ERR "\n[USER FAULT] Vector %llu: %s (error 0x%llx) at rip=0x%llx\n",
+                   regs->int_no, exception_messages[regs->int_no],
+                   regs->error_code, regs->rip);
+            uproc_fault(exception_messages[regs->int_no], fault_addr);
+        }
+
         // CPU Exception Fault
         printk(KERN_EMERG "\n[EXCEPTION] Vector %llu: %s (Error code: 0x%llx)\n",
                regs->int_no, exception_messages[regs->int_no], regs->error_code);

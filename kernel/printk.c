@@ -49,6 +49,36 @@ static void dmesg_append(const char* str, size_t len) {
     }
 }
 
+/*
+ * Put raw bytes on every console printk uses.
+ *
+ * Kept here rather than at the call sites because the routing is not obvious:
+ * once the display adapter is in graphics mode the VGA text buffer is no
+ * longer scanned out, so the framebuffer console has to take over, and the
+ * serial port is a separate sink that has to be fed either way. Userland
+ * writes to stdout/stderr land here so they behave exactly like kernel output.
+ */
+void console_write(const char* data, size_t len) {
+    if (!data || len == 0) return;
+
+    if (fbcon_is_active()) {
+        fbcon_write(data, len);
+    } else {
+        tty_write(data, len);
+    }
+
+#if defined(__aarch64__) || defined(__arm__) || defined(__armv8i__)
+    extern void uart_pl011_putc(char c);
+    for (size_t i = 0; i < len; i++) {
+        uart_pl011_putc(data[i]);
+    }
+#else
+    for (size_t i = 0; i < len; i++) {
+        serial_write_char(data[i]);
+    }
+#endif
+}
+
 int vprintk(const char* fmt, va_list args) {
     char buffer[1024];
     int len = vsnprintf(buffer, sizeof(buffer), fmt, args);

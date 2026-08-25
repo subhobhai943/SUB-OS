@@ -43,6 +43,10 @@
 
 // Printk API
 void printk_init(void);
+
+// Write raw bytes to every console printk drives (TTY or framebuffer, plus
+// serial). Used by the write(2) path so userland output is routed identically.
+void console_write(const char* data, size_t len);
 int  printk(const char* fmt, ...);
 int  vprintk(const char* fmt, va_list args);
 int  kprintf(const char* fmt, ...); // Alias for compatibility
