@@ -282,6 +282,59 @@ def save_config(cfg):
 # -----------------------------------------------------------------------------
 # Linux lxdialog Runner (Uses /usr/bin/dialog for authentic Linux GUI Look)
 # -----------------------------------------------------------------------------
+def _help_tokens(payload):
+    """Split a dialog --help-button payload into bare tags.
+
+    dialog emits "HELP <focused-tag>" and, with --help-status, appends the
+    tags that are currently on.  Quoting depends on the dialog build, so the
+    tokens are unquoted here rather than at each call site.
+    """
+    tokens = [t.strip('"') for t in payload.split()]
+    if tokens and tokens[0] == "HELP":
+        tokens = tokens[1:]
+    return tokens
+
+
+def _help_tag(payload):
+    """Return just the focused tag from a dialog help payload."""
+    tokens = _help_tokens(payload)
+    return tokens[0] if tokens else None
+
+
+def _apply_selection(cfg, items, selected_tags, is_radiolist):
+    """Fold a dialog checklist/radiolist result back into the config dict."""
+    selected = {t.strip('"') for t in selected_tags}
+    if is_radiolist:
+        sel_item = next((i for i in items if i["id"] in selected), None)
+        if not sel_item:
+            return
+        group = sel_item.get("group")
+        if group == "arch":
+            cfg["CONFIG_ARCH"] = sel_item["val"]
+            cfg["CONFIG_ARCH_X86_64"] = (sel_item["val"] == "x86_64")
+            cfg["CONFIG_ARCH_AARCH64"] = (sel_item["val"] == "aarch64")
+            cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
+        elif group == "opt":
+            cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
+    else:
+        # Only fold in the toggleable rows; anything else in the menu keeps
+        # whatever value it already had.
+        for item in items:
+            if item.get("type") == "bool":
+                cfg[item["id"]] = (item["id"] in selected)
+
+
+def _menu_help(menu, default="No help available."):
+    """Help text for a menu node.
+
+    The curses browser uses the MENU_TREE list itself as the root node, so
+    this has to tolerate a list as well as a menu dict.
+    """
+    if isinstance(menu, dict):
+        return menu.get("help", default)
+    return default
+
+
 def run_dialog_gui():
     cfg = load_config()
     backtitle = "SUB-OS v0.2.0-lts Modular Monolithic Linux Kernel Configuration"
@@ -301,6 +354,7 @@ def run_dialog_gui():
                 "--backtitle", backtitle,
                 "--title", "SUB-OS Kernel Configuration",
                 "--extra-button", "--extra-label", "Save",
+                "--cancel-label", "Exit",
                 "--help-button",
                 "--menu",
                 "Arrow keys navigate the menu.  <Enter> selects submenus --->.\n"
@@ -330,8 +384,20 @@ def run_dialog_gui():
                 msg_cmd = ["dialog", "--backtitle", backtitle, "--msgbox", f"Configuration saved successfully to {CONFIG_FILE} and {AUTOCONF_HEADER}!", "7", "65"]
                 subprocess.run(msg_cmd)
             elif ret == 2:  # Help button
-                help_text = "SUB-OS Kernel Configuration Utility (lxdialog GUI)\n\nNavigate through each subsystem and configure features according to your target hardware needs."
-                subprocess.run(["dialog", "--backtitle", backtitle, "--title", "Main Menu Help", "--msgbox", help_text, "12", "70"])
+                # dialog reports the focused row as "HELP <tag>"; show that
+                # subsystem's own help rather than one generic blurb.
+                focus = _help_tag(sel)
+                focused = next((m for m in MENU_TREE if m["id"] == focus), None)
+                if focused:
+                    help_title = f"{focused['title']} - Help"
+                    help_text = focused.get("help", "No additional help available for this subsystem.")
+                else:
+                    help_title = "Main Menu Help"
+                    help_text = ("SUB-OS Kernel Configuration Utility (lxdialog GUI)\n\n"
+                                 "Navigate through each subsystem and configure features "
+                                 "according to your target hardware needs.")
+                subprocess.run(["dialog", "--backtitle", backtitle, "--title", help_title,
+                                "--msgbox", help_text, "16", "72"])
 
         else:
             # Submenu Display
@@ -367,6 +433,7 @@ def run_dialog_gui():
                 "--backtitle", backtitle,
                 "--title", submenu["title"],
                 "--help-button",
+                "--help-status",
                 dialog_type,
                 "Use <Space> to toggle features [*], <Enter> to confirm, <Help> for info.",
                 "20", "78", "10"
@@ -377,31 +444,28 @@ def run_dialog_gui():
             out = res.stderr.strip()
 
             if ret == 0:  # OK / Confirm
-                selected_tags = [t.strip('"') for t in out.split()]
-                if is_radiolist:
-                    if selected_tags:
-                        sel_id = selected_tags[0]
-                        sel_item = next((i for i in items if i["id"] == sel_id), None)
-                        if sel_item:
-                            group = sel_item.get("group")
-                            if group == "arch":
-                                cfg["CONFIG_ARCH"] = sel_item["val"]
-                                cfg["CONFIG_ARCH_X86_64"] = (sel_item["val"] == "x86_64")
-                                cfg["CONFIG_ARCH_AARCH64"] = (sel_item["val"] == "aarch64")
-                                cfg["CONFIG_ARCH_ARMV8I"] = (sel_item["val"] == "armv8i")
-                            elif group == "opt":
-                                cfg["CONFIG_OPTIMIZATION"] = sel_item["val"]
-                else:
-                    for item in items:
-                        cfg[item["id"]] = (item["id"] in selected_tags)
+                _apply_selection(cfg, items, [t.strip('"') for t in out.split()], is_radiolist)
                 current_menu_id = "main"
 
             elif ret == 1 or ret == 255:  # Cancel or Esc
                 current_menu_id = "main"
 
             elif ret == 2:  # Help button
-                help_text = submenu.get("help", "No additional help available for this subsystem.")
-                subprocess.run(["dialog", "--backtitle", backtitle, "--title", f"{submenu['title']} - Help", "--msgbox", help_text, "14", "72"])
+                # With --help-status the payload is "HELP <focused-tag> <on-tags...>".
+                # Re-apply the on-tags first so the toggles made before pressing
+                # <Help> survive the round trip, then show the focused item's help.
+                tokens = _help_tokens(out)
+                focus = tokens[0] if tokens else None
+                _apply_selection(cfg, items, tokens[1:], is_radiolist)
+                focused = next((i for i in items if i["id"] == focus), None)
+                if focused:
+                    help_title = f"{focused['label']} - Help"
+                    help_text = focused.get("help", "No additional help available for this option.")
+                else:
+                    help_title = f"{submenu['title']} - Help"
+                    help_text = submenu.get("help", "No additional help available for this subsystem.")
+                subprocess.run(["dialog", "--backtitle", backtitle, "--title", help_title,
+                                "--msgbox", help_text, "16", "72"])
 
     save_config(cfg)
     print(f"*** Configuration written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
@@ -564,15 +628,21 @@ def run_curses_gui(stdscr):
 
         # 6. Bottom Action Button Bar
         btn_y = dy + dh - 2
-        btn_spacing = (dw - sum(len(b) + 4 for b in buttons)) // (len(buttons) + 1)
-        cur_bx = dx + btn_spacing
+        btn_texts = [f"< {b} >" for b in buttons]
+        # Centre the row and clamp it: the old spacing maths went negative on a
+        # narrow dialog and pushed the last buttons through the right border.
+        total_w = sum(len(t) for t in btn_texts)
+        gap = max(1, (dw - 4 - total_w) // max(1, len(btn_texts) - 1))
+        row_w = total_w + gap * (len(btn_texts) - 1)
+        cur_bx = dx + max(2, (dw - row_w) // 2)
 
-        for b_idx, btn_name in enumerate(buttons):
+        for b_idx, b_text in enumerate(btn_texts):
+            if cur_bx + len(b_text) > dx + dw - 2:
+                break
             is_active_btn = (b_idx == btn_cursor)
-            b_text = f"< {btn_name} >"
             b_attr = (curses.color_pair(6) | curses.A_BOLD) if (is_active_btn and has_color) else (curses.A_REVERSE if is_active_btn else box_attr)
             stdscr.addstr(btn_y, cur_bx, b_text, b_attr)
-            cur_bx += len(b_text) + max(2, btn_spacing)
+            cur_bx += len(b_text) + gap
 
         stdscr.refresh()
         try:
@@ -641,10 +711,8 @@ def run_curses_gui(stdscr):
                 else:
                     save_config(cfg)
                     break
-            elif btn_cursor == 2 or key == ord('?'):  # Help
-                sel = items[cursor] if cursor < len(items) else None
-                help_msg = sel.get("help", current_menu.get("help", "No help available.")) if sel else "SUB-OS Kernel Configurator"
-                show_popup(stdscr, "Option Help", help_msg, max_y, max_x)
+            elif btn_cursor == 2:  # Help
+                _show_help(stdscr, current_menu, items, cursor, max_y, max_x)
             elif btn_cursor == 3:  # Save
                 save_config(cfg)
                 show_popup(stdscr, "Save Configuration", f"Configuration successfully saved to {CONFIG_FILE} and {AUTOCONF_HEADER}!", max_y, max_x)
@@ -652,6 +720,10 @@ def run_curses_gui(stdscr):
                 cfg = dict(DEFAULTS)
                 save_config(cfg)
                 show_popup(stdscr, "Reset Defaults", "Default configuration options loaded!", max_y, max_x)
+        elif key == ord('?'):
+            # Previously nested under the <Enter> branch, where it could never
+            # match, so the documented '?' help hotkey did nothing.
+            _show_help(stdscr, current_menu, items, cursor, max_y, max_x)
         elif key in [ord('s'), ord('S')]:
             save_config(cfg)
             show_popup(stdscr, "Save Configuration", f"Configuration successfully saved to {CONFIG_FILE} and {AUTOCONF_HEADER}!", max_y, max_x)
@@ -661,6 +733,17 @@ def run_curses_gui(stdscr):
             else:
                 save_config(cfg)
                 break
+
+def _show_help(stdscr, current_menu, items, cursor, max_y, max_x):
+    """Show help for the focused row, falling back to the enclosing menu."""
+    sel = items[cursor] if 0 <= cursor < len(items) else None
+    if sel is None:
+        show_popup(stdscr, "Help", _menu_help(current_menu, "SUB-OS Kernel Configurator"), max_y, max_x)
+        return
+    title = sel.get("label") or sel.get("title") or "Option"
+    help_msg = sel.get("help") or _menu_help(current_menu)
+    show_popup(stdscr, f"{title} - Help", help_msg, max_y, max_x)
+
 
 def show_popup(stdscr, title, message, max_y, max_x):
     pw = min(64, max_x - 6)
@@ -740,19 +823,26 @@ def main():
         try:
             run_dialog_gui()
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            # Falling through silently used to make a crash look like the UI
+            # simply refusing to respond; say what happened before retrying.
+            print(f"menuconfig: lxdialog front-end failed ({exc}); "
+                  f"falling back to the curses UI.", file=sys.stderr)
 
     # Fallback to Curses GUI replica
     try:
         import curses
         curses.wrapper(run_curses_gui)
         print(f"*** Configuration saved to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
-    except Exception:
-        # Fallback if no TTY
-        cfg = load_config()
-        save_config(cfg)
-        print(f"*** Configuration written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
+        return
+    except Exception as exc:
+        print(f"menuconfig: curses UI unavailable ({exc}); "
+              f"writing the current configuration non-interactively.", file=sys.stderr)
+
+    # Last resort: no usable TTY at all.
+    cfg = load_config()
+    save_config(cfg)
+    print(f"*** Configuration written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
 
 if __name__ == "__main__":
     main()
