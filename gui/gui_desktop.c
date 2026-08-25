@@ -59,6 +59,7 @@ static const desktop_app_t g_apps[] = {
     { "Life",       GUI_ICON_FLASK,    gui_app_life_launch,     240,  70, 480, 380 },
     { "Rust Lab",   GUI_ICON_INFO,     gui_app_rustlab_launch,  300,  80, 420, 300 },
     { "Objects",    GUI_ICON_TASKS,    gui_app_objbrowse_launch,280,  70, 460, 340 },
+    { "RegEdit",    GUI_ICON_SETTINGS, gui_app_regedit_launch,  300,  90, 480, 360 },
     { "Clock",      GUI_ICON_CLOCK,    gui_app_clock_launch,    460, 120, 280, 260 },
     { "Settings",   GUI_ICON_SETTINGS, gui_app_settings_launch, 160,  60, 400, 320 },
     { "About",      GUI_ICON_INFO,     gui_app_about_launch,    240, 140, 330, 170 },
@@ -67,8 +68,8 @@ static const desktop_app_t g_apps[] = {
 
 // Which of the above appear on the desktop itself.
 // Indices into g_apps[]: Terminal, Files, Monitor, Kernel Log, KTest, Life,
-// Rust Lab, Settings. (Objects lives in the start menu.)
-static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 13 };
+// Rust Lab, Settings. (Objects/RegEdit live in the start menu.)
+static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14 };
 #define DESKTOP_ICON_COUNT ((int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0])))
 
 static bool g_start_menu_open   = false;

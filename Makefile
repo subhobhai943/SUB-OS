@@ -125,7 +125,7 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             kernel/panic.c kernel/trace.c kernel/sched.c kernel/cron.c kernel/syscall.c \
             kernel/syslog.c kernel/module.c kernel/kobject.c kernel/metrics.c kernel/namespace.c \
             kernel/signal.c kernel/workqueue.c kernel/tsc.c kernel/vt_art.c \
-            kernel/sub/sub_runtime.c kernel/sub/sub_vm.c kernel/nt/ob.c kernel/nt/reg.c \
+            kernel/sub/sub_runtime.c kernel/sub/sub_vm.c kernel/nt/ob.c kernel/nt/reg.c kernel/nt/io.c \
             kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c \
             kernel/elf.c kernel/exec.c \
             lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c lib/font8x8.c \

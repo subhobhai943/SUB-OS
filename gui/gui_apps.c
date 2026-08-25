@@ -10,6 +10,7 @@
 #include <kernel/printk.h>
 #include <kernel/rust.h>
 #include <kernel/nt/ob.h>
+#include <kernel/nt/reg.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 
@@ -766,5 +767,124 @@ void gui_app_objbrowse_launch(int x, int y, int w, int h) {
         win->user_data = bd;
         win->paint = objbrowse_paint;
         win->handle_event = objbrowse_event;
+    }
+}
+
+// =================================================================
+// 10. Registry Editor -- navigate the NT \Registry hive tree
+// =================================================================
+typedef struct {
+    reg_key_t* current;
+    int        row_h;
+    int        list_top_rel;   // list start, relative to window content top
+    int        sub_count;      // subkeys shown this frame (for click mapping)
+    bool       has_up;         // a ".." row is present
+} regedit_data_t;
+
+static void regedit_build_path(reg_key_t* key, char* out, size_t len) {
+    // Walk parents into a reversed segment stack, then join with backslashes.
+    const char* segs[16];
+    int n = 0;
+    reg_key_t* k = key;
+    while (k && n < 16) { segs[n++] = k->name; k = k->parent; }
+    size_t pos = 0;
+    out[0] = '\0';
+    for (int i = n - 1; i >= 0; i--) {
+        int wrote = snprintf(out + pos, (pos < len) ? len - pos : 0, "\\%s", segs[i]);
+        if (wrote > 0) pos += (size_t)wrote;
+        if (pos >= len) break;
+    }
+}
+
+static void regedit_paint(gui_window_t* win) {
+    regedit_data_t* rd = (regedit_data_t*)win->user_data;
+    if (!rd) return;
+    if (!rd->current) rd->current = reg_root();
+
+    int cx  = win->x + 12;
+    int top = win->y + GUI_TITLEBAR_HEIGHT;
+
+    char path[192];
+    regedit_build_path(rd->current, path, sizeof(path));
+    gui_gfx_draw_string_16_shadow(cx, top + 8, "Registry Editor", GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
+    gui_gfx_draw_string(cx, top + 28, path, GUI_THEME_TEXT_MUTED);
+
+    rd->row_h = 13;
+    rd->list_top_rel = GUI_TITLEBAR_HEIGHT + 46;
+    int y = top + 46;
+
+    rd->has_up = (rd->current->parent != NULL);
+    if (rd->has_up) {
+        gui_gfx_draw_string(cx, y, "..", GUI_THEME_ACCENT);
+        y += rd->row_h;
+    }
+
+    // Subkeys (navigable)
+    int kc = reg_enum_key_count(rd->current);
+    rd->sub_count = kc;
+    for (int i = 0; i < kc; i++) {
+        reg_key_t* sub = reg_enum_key(rd->current, i);
+        char line[64];
+        snprintf(line, sizeof(line), "[%s]", sub->name);
+        gui_gfx_draw_string(cx, y, line, GUI_THEME_SUCCESS);
+        y += rd->row_h;
+    }
+
+    // Values pane
+    y += 4;
+    gui_gfx_draw_line(cx, y, win->x + win->width - 12, y, GUI_THEME_BORDER);
+    y += 6;
+    int vc = reg_enum_value_count(rd->current);
+    if (vc == 0) {
+        gui_gfx_draw_string(cx, y, "(no values)", GUI_THEME_TEXT_DIM);
+    }
+    for (int i = 0; i < vc; i++) {
+        reg_value_t* v = reg_enum_value(rd->current, i);
+        char rendered[REG_STR_MAX + 8];
+        reg_value_to_string(v, rendered, sizeof(rendered));
+        char line[160];
+        snprintf(line, sizeof(line), "%-18s %-10s %s", v->name, reg_type_name(v->type), rendered);
+        gui_gfx_draw_string(cx, y, line, GUI_THEME_TEXT_MAIN);
+        y += rd->row_h;
+        if (y > win->y + win->height - 12) break;
+    }
+}
+
+static void regedit_event(gui_window_t* win, const gui_event_t* ev) {
+    regedit_data_t* rd = (regedit_data_t*)win->user_data;
+    if (!rd) return;
+
+    if (ev->type == GUI_EVENT_CLOSE) {
+        if (win->user_data) { kfree(win->user_data); win->user_data = NULL; }
+        return;
+    }
+    if (ev->type != GUI_EVENT_MOUSE_DOWN) return;
+    if (!rd->current) return;
+
+    int rel = ev->rel_y - rd->list_top_rel;
+    if (rel < 0) return;
+    int row = rel / (rd->row_h > 0 ? rd->row_h : 13);
+
+    int idx = 0;
+    if (rd->has_up) {
+        if (row == 0) { rd->current = rd->current->parent; return; }
+        idx = row - 1;
+    } else {
+        idx = row;
+    }
+    if (idx >= 0 && idx < rd->sub_count) {
+        reg_key_t* sub = reg_enum_key(rd->current, idx);
+        if (sub) rd->current = sub;
+    }
+}
+
+void gui_app_regedit_launch(int x, int y, int w, int h) {
+    gui_window_t* win = gui_wm_create_window("Registry Editor", x, y, (w > 0) ? w : 480, (h > 0) ? h : 360);
+    if (win) {
+        regedit_data_t* rd = (regedit_data_t*)kzalloc(sizeof(regedit_data_t));
+        if (rd) rd->current = reg_root();
+        win->user_data = rd;
+        win->paint = regedit_paint;
+        win->handle_event = regedit_event;
     }
 }

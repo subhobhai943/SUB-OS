@@ -31,6 +31,7 @@
 #include <kernel/rust.h>
 #include <kernel/nt/ob.h>
 #include <kernel/nt/reg.h>
+#include <kernel/nt/io.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
@@ -657,6 +658,61 @@ static int applet_reg(int argc, char** argv) {
 
     printk("reg: unrecognised sub-command '%s'\n", argv[1]);
     return 1;
+}
+
+static int applet_iodev(int argc, char** argv) {
+    (void)argc; (void)argv;
+    uint32_t drivers = 0, devices = 0;
+    uint64_t irps = 0;
+    io_get_stats(&drivers, &devices, &irps);
+
+    printk(ANSI_BRIGHT_CYAN "NT I/O Manager:\n" ANSI_RESET);
+    printk("  Drivers: %u   Devices: %u   IRPs dispatched: %llu\n",
+           drivers, devices, (unsigned long long)irps);
+
+    int dc = io_device_count();
+    for (int i = 0; i < dc; i++) {
+        DEVICE_OBJECT* dev = io_device_at(i);
+        if (!dev) continue;
+        printk("  " ANSI_YELLOW "%-22s" ANSI_RESET " drv=%-16s r=%llu w=%llu ioctl=%llu",
+               dev->name, dev->driver ? dev->driver->name : "?",
+               (unsigned long long)dev->read_count,
+               (unsigned long long)dev->write_count,
+               (unsigned long long)dev->ioctl_count);
+        if (dev->attached_to) {
+            printk(" -> %s", dev->attached_to->name);
+        }
+        printk("\n");
+    }
+
+    // Live demo: push a WRITE IRP through the filtered Null stack and a READ to
+    // the Zero device, then report what came back.
+    printk(ANSI_BRIGHT_CYAN "IRP demo:\n" ANSI_RESET);
+    DEVICE_OBJECT* mon = io_lookup_device("\\Device\\NullMonitor");
+    if (mon) {
+        char payload[16];
+        memset(payload, 'X', sizeof(payload));
+        IRP* irp = io_build_irp(IRP_MJ_WRITE, payload, sizeof(payload));
+        if (irp) {
+            NTSTATUS st = io_call_driver(mon, irp);
+            printk("  WRITE %u bytes to %s -> status=0x%X, %u bytes sunk (via filter)\n",
+                   (unsigned)sizeof(payload), mon->name, st, irp->information);
+            io_free_irp(irp);
+        }
+    }
+    DEVICE_OBJECT* zero = io_lookup_device("\\Device\\Zero");
+    if (zero) {
+        uint8_t buf[8];
+        memset(buf, 0xEE, sizeof(buf));
+        IRP* irp = io_build_irp(IRP_MJ_READ, buf, sizeof(buf));
+        if (irp) {
+            io_call_driver(zero, irp);
+            printk("  READ %u bytes from %s -> first bytes %02X %02X %02X (zeroed)\n",
+                   irp->information, zero->name, buf[0], buf[1], buf[2]);
+            io_free_irp(irp);
+        }
+    }
+    return 0;
 }
 
 static int applet_rand(int argc, char** argv) {
@@ -2371,6 +2427,7 @@ static const lazybox_applet_t applets[] = {
     {"objdir",        applet_objdir,        "objdir [\\path]",            "List the NT object namespace","Kernel"},
     {"ntobj",         applet_ntobj,         "ntobj",                     "NT Object Manager stats/demo","Kernel"},
     {"reg",           applet_reg,           "reg query|add|set|stats",   "NT configuration registry",  "Kernel"},
+    {"iodev",         applet_iodev,         "iodev",                     "NT I/O Manager devices & IRP","Kernel"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
