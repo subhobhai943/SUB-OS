@@ -29,6 +29,7 @@
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <kernel/rust.h>
+#include <kernel/nt/ob.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
@@ -505,6 +506,85 @@ static int applet_rle(int argc, char** argv) {
     printk("  Round-trip : %s\n", ok ? ANSI_BRIGHT_GREEN "OK (lossless)" ANSI_RESET
                                      : ANSI_BRIGHT_RED "MISMATCH" ANSI_RESET);
     return ok ? 0 : 1;
+}
+
+static void objdir_print_tree(ob_object_t* obj, int depth) {
+    if (!obj) return;
+    char indent[40];
+    int n = depth * 2;
+    if (n > (int)sizeof(indent) - 1) n = sizeof(indent) - 1;
+    for (int i = 0; i < n; i++) indent[i] = ' ';
+    indent[n] = '\0';
+
+    char detail[72];
+    detail[0] = '\0';
+    if (obj->type == OB_TYPE_EVENT) {
+        snprintf(detail, sizeof(detail), "  [%s, %s]",
+                 obj->body.event.manual_reset ? "manual-reset" : "auto-reset",
+                 obj->body.event.signaled ? "signaled" : "nonsignaled");
+    } else if (obj->type == OB_TYPE_SEMAPHORE) {
+        snprintf(detail, sizeof(detail), "  [%d/%d]",
+                 obj->body.sem.count, obj->body.sem.limit);
+    }
+
+    printk("%s%s%s  " ANSI_YELLOW "(%s" ANSI_RESET " ref=%d hnd=%d%s)%s\n",
+           indent, obj->name,
+           (obj->type == OB_TYPE_DIRECTORY) ? "\\" : "",
+           ob_type_name(obj->type), obj->ref_count, obj->handle_count,
+           obj->permanent ? " perm" : "", detail);
+
+    if (obj->type == OB_TYPE_DIRECTORY) {
+        int c = ob_dir_child_count(obj);
+        for (int i = 0; i < c; i++) {
+            objdir_print_tree(ob_dir_child(obj, i), depth + 1);
+        }
+    }
+}
+
+static int applet_objdir(int argc, char** argv) {
+    const char* path = (argc >= 2) ? argv[1] : "\\";
+    ob_object_t* obj = ob_lookup_path(path);
+    if (!obj) {
+        printk(KERN_ERR "objdir: object '%s' not found in the namespace\n", path);
+        return 1;
+    }
+    printk(ANSI_BRIGHT_CYAN "NT Object Namespace" ANSI_RESET " at '%s':\n", path);
+    objdir_print_tree(obj, 0);
+    return 0;
+}
+
+static int applet_ntobj(int argc, char** argv) {
+    (void)argc; (void)argv;
+    uint32_t objs = 0, handles = 0, per[OB_TYPE_MAX];
+    ob_get_stats(&objs, &handles, per);
+
+    printk(ANSI_BRIGHT_CYAN "NT Object Manager statistics:\n" ANSI_RESET);
+    printk("  Total objects : %u\n", objs);
+    printk("  Open handles  : %u / %d\n", handles, OB_HANDLE_MAX);
+    for (int i = 0; i < OB_TYPE_MAX; i++) {
+        printk("    %-10s: %u\n", ob_type_name((ob_type_t)i), per[i]);
+    }
+
+    printk(ANSI_BRIGHT_CYAN "Dispatcher / handle demo:\n" ANSI_RESET);
+    ob_object_t* evt = NULL;
+    if (NT_SUCCESS(ob_create_object(OB_TYPE_EVENT, "DemoEvent",
+                                    ob_lookup_path("\\KernelObjects"), &evt)) && evt) {
+        HANDLE h = ob_open_handle(evt);
+        ob_dereference_object(evt); // the handle now keeps it alive
+        bool before = ke_test_event(evt);
+        ke_set_event(evt);
+        bool after = ke_test_event(evt); // auto-reset consumes the signal
+        printk("  \\KernelObjects\\DemoEvent handle=0x%X  test:%d set->test:%d\n",
+               h, before, after);
+        ob_close_handle(h);
+        printk("  Closed handle -> object reclaimed (handle_count and ref_count hit 0)\n");
+    }
+
+    KIRQL old = ke_raise_irql(DISPATCH_LEVEL);
+    printk("  IRQL: raised %d(PASSIVE) -> %d(DISPATCH); ", old, ke_get_current_irql());
+    ke_lower_irql(old);
+    printk("lowered back to %d\n", ke_get_current_irql());
+    return 0;
 }
 
 static int applet_rand(int argc, char** argv) {
@@ -2216,6 +2296,8 @@ static const lazybox_applet_t applets[] = {
     {"crc32",         applet_crc32,         "crc32 <text>",              "Calculate CRC32 checksum",   "Crypto"},
     {"cksum",         applet_cksum,         "cksum <text>",              "Rust CRC-32C/Adler-32/FNV",  "Crypto"},
     {"rle",           applet_rle,           "rle <text>",                "Rust RLE compress round-trip","Crypto"},
+    {"objdir",        applet_objdir,        "objdir [\\path]",            "List the NT object namespace","Kernel"},
+    {"ntobj",         applet_ntobj,         "ntobj",                     "NT Object Manager stats/demo","Kernel"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},

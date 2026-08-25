@@ -7,6 +7,7 @@
 #include <kernel/timer.h>
 #include <kernel/workqueue.h>
 #include <kernel/module.h>
+#include <kernel/nt/ob.h>
 #include <kernel/trace.h>
 #include <kernel/namespace.h>
 #include <kernel/syslog.h>
@@ -239,6 +240,7 @@ static void subos_modular_core_boot(void) {
     syslog_init();
     metrics_init();
     cron_init();
+    ob_init();
     service_manager_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
