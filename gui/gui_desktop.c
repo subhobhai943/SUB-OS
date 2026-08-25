@@ -24,6 +24,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/rtc.h>
 #include <drivers/cpufreq.h>
+#include <kernel/ktime.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <arch/arch.h>
@@ -82,6 +83,9 @@ static bool g_clock_seconds = true;
 static int  g_selected_icon = -1;
 static int  g_hover_menu_item = -1;
 static uint64_t g_frames = 0;
+static uint32_t g_fps = 0;           // frames per second, sampled from ktime
+static uint64_t g_fps_last_ms = 0;
+static uint64_t g_fps_last_frames = 0;
 
 /*
  * Cached wallpaper.
@@ -178,28 +182,50 @@ void gui_desktop_init(void) {
 // Wallpaper and desktop icons
 // ===========================================================================
 
-/* Paint the wallpaper straight into the back buffer. */
+/* Paint the wallpaper straight into the back buffer. A three-stop vertical
+ * gradient gives the sky depth, a soft edge vignette frames it, and an optional
+ * fine grid adds texture without banding. Painted once and cached. */
 static void desktop_paint_background(int sw, int wh) {
-    gui_gfx_draw_gradient_v(0, 0, sw, wh, 0xFF0B132B, 0xFF1C2541);
+    // Three-stop vertical gradient: deep space blue -> indigo -> a touch lighter.
+    int mid = wh * 55 / 100;
+    gui_gfx_draw_gradient_v(0, 0,   sw, mid,      0xFF070B18, 0xFF141C38);
+    gui_gfx_draw_gradient_v(0, mid, sw, wh - mid, 0xFF141C38, 0xFF1D2A52);
 
     if (g_show_grid) {
-        // Blend rather than stamp a fixed colour: the gradient's lower half is
-        // lighter than any single grid tone, so a constant colour disappears
-        // there and only shows near the top of the screen.
-        for (int y = 0; y < wh; y += 40) {
-            gui_gfx_fill_rect_blend(0, y, sw, 1, GUI_COLOR_BLACK, 40);
+        // A finer, fainter grid than before reads as texture rather than lines.
+        for (int y = 0; y < wh; y += 48) {
+            gui_gfx_fill_rect_blend(0, y, sw, 1, 0xFF3B4E80, 22);
         }
-        for (int x = 0; x < sw; x += 40) {
-            gui_gfx_fill_rect_blend(x, 0, 1, wh, GUI_COLOR_BLACK, 40);
+        for (int x = 0; x < sw; x += 48) {
+            gui_gfx_fill_rect_blend(x, 0, 1, wh, 0xFF3B4E80, 22);
         }
     }
 
-    // Branding, offset to the right so it clears the icon column.
-    int bx = sw / 2 + 40;
-    int by = wh / 2 - 30;
-    gui_gfx_draw_string_16_shadow(bx - 60, by, "SUB-OS DESKTOP", 0xFF38BDF8, 0xFF0284C7);
-    gui_gfx_draw_string(bx - 76, by + 22, "Modular Monolithic Kernel v0.2.0-LTS", 0xFF64748B);
-    gui_gfx_draw_string(bx - 76, by + 36, "F5 cycle  F6 cascade  F7 tile  F8 max", 0xFF475569);
+    // Soft vignette: concentric 1px frames darkening toward the edges. The
+    // alpha falls off with depth, so the corners recede smoothly.
+    int depth = (wh < sw ? wh : sw) / 6;
+    for (int i = 0; i < depth; i++) {
+        uint8_t a = (uint8_t)(((depth - i) * 42) / depth);
+        if (a == 0) continue;
+        gui_gfx_fill_rect_blend(i, i, sw - 2 * i, 1, GUI_COLOR_BLACK, a);           // top
+        gui_gfx_fill_rect_blend(i, wh - 1 - i, sw - 2 * i, 1, GUI_COLOR_BLACK, a);  // bottom
+        gui_gfx_fill_rect_blend(i, i, 1, wh - 2 * i, GUI_COLOR_BLACK, a);           // left
+        gui_gfx_fill_rect_blend(sw - 1 - i, i, 1, wh - 2 * i, GUI_COLOR_BLACK, a);  // right
+    }
+
+    // Centred brand mark with a subtle glow (drawn as a shadowed 16px title).
+    const char* brand = "SUB-OS";
+    int glyph_w = 16; // draw_string_16 advances ~16px per glyph
+    int bw = (int)strlen(brand) * glyph_w;
+    int bx = (sw - bw) / 2;
+    int by = wh / 2 - 40;
+    gui_gfx_draw_string_16_shadow(bx, by, brand, 0xFF7DD3FC, 0xFF0C4A6E);
+    const char* sub = "Modular Monolithic Kernel  -  v0.2.0-LTS";
+    int sw2 = (int)strlen(sub) * 8;
+    gui_gfx_draw_string((sw - sw2) / 2, by + 24, sub, 0xFF64748B);
+    const char* hint = "F5 cycle    F6 cascade    F7 tile    F8 maximize";
+    int hw = (int)strlen(hint) * 8;
+    gui_gfx_draw_string((sw - hw) / 2, by + 40, hint, 0xFF3E4C6B);
 }
 
 void gui_desktop_invalidate_background(void) {
@@ -314,7 +340,7 @@ void gui_desktop_render_taskbar(void) {
 
     // One button per window, in z-order
     int tab_x = 106;
-    int tray_x = sw - 200;
+    int tray_x = sw - 260;   // widened tray: FPS pill + CPU trace + mem + clock
     for (int i = 0; i < gui_wm_get_window_count() && tab_x < tray_x - 106; i++) {
         gui_window_t* win = gui_wm_get_window_at_index(i);
         if (!win || !win->visible) continue;
@@ -357,6 +383,14 @@ void gui_desktop_render_taskbar(void) {
     gui_gfx_draw_rect(sw - 145, ty + 6, 52, 20, 0xFF059669);
     gui_gfx_draw_string(sw - 140, ty + 12, buf, GUI_COLOR_BLACK);
     (void)total;
+
+    // Live FPS pill, tinted by how smooth the compositor is running.
+    char fps[16];
+    snprintf(fps, sizeof(fps), "%u FPS", g_fps);
+    uint32_t fps_col = (g_fps >= 45) ? GUI_THEME_SUCCESS
+                     : (g_fps >= 20) ? GUI_THEME_WARNING
+                                     : GUI_THEME_DANGER;
+    gui_gfx_draw_string(sw - 205, ty + 12, fps, fps_col);
 
     rtc_time_t now;
     rtc_get_time(&now);
@@ -679,9 +713,12 @@ int gui_desktop_run(void) {
     fbcon_enable(false);
     gui_desktop_init();
 
-    // Open a default session so the desktop is not empty on first boot.
-    launch_app(2);   // System Monitor
-    launch_app(0);   // Terminal
+    // Open a default session so the desktop is not empty on first boot. Placed
+    // and sized for the HD work area rather than the old 800x600 defaults.
+    int sw = gui_gfx_get_width();
+    int wh = gui_desktop_workarea_height();
+    gui_app_sysmon_launch(sw - 620, 60, 560, 360);
+    gui_app_terminal_launch(120, 90, sw - 820, wh - 200);
 
     // Discard anything the console left in the keyboard queue; a stale key
     // arriving on frame 0 would otherwise act as a desktop shortcut.
@@ -763,6 +800,15 @@ int gui_desktop_run(void) {
         gui_gfx_present();
         g_frames++;
         g_pushed_pixels += gui_gfx_last_present_pixels();
+
+        // Sample the frame rate roughly twice a second from the monotonic clock.
+        uint64_t now_ms = ktime_ms();
+        uint64_t dt = now_ms - g_fps_last_ms;
+        if (dt >= 500) {
+            g_fps = (uint32_t)(((g_frames - g_fps_last_frames) * 1000ULL) / dt);
+            g_fps_last_ms = now_ms;
+            g_fps_last_frames = g_frames;
+        }
 
         if ((g_frames & 0xFF) == 0) {
             uint64_t full = (uint64_t)gui_gfx_get_width() * (uint64_t)gui_gfx_get_height();

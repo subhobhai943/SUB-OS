@@ -126,7 +126,7 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             kernel/syslog.c kernel/module.c kernel/kobject.c kernel/metrics.c kernel/namespace.c \
             kernel/signal.c kernel/workqueue.c kernel/tsc.c kernel/vt_art.c \
             kernel/sub/sub_runtime.c kernel/sub/sub_vm.c kernel/nt/ob.c kernel/nt/reg.c kernel/nt/io.c \
-            kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c \
+            kernel/wait.c kernel/futex.c kernel/rcu.c kernel/ktest.c kernel/time/ktime.c \
             kernel/elf.c kernel/exec.c \
             lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c lib/font8x8.c \
             init/cmdline.c init/service.c init/bootlogo.c init/logo_data.c usr/initramfs.c block/block.c block/elevator.c \
@@ -451,14 +451,14 @@ $(IMAGE): $(BUILD_DIR)/boot/boot.bin $(BUILD_DIR)/boot/stage2.bin $(BUILD_DIR)/k
 # -----------------------------------------------------------------------------
 # -vga std gives the Bochs VBE adapter the kernel drives. vgamem_mb is raised
 # because a 1280x720 32-bit framebuffer needs more than the 8 MB default.
-QEMU_VGA = -device VGA,vgamem_mb=32
+QEMU_VGA = -device VGA,vgamem_mb=64
 
 # `make run` boots straight into the SUB-OS Graphical Desktop Environment. The
 # guest window scales with zoom-to-fit; pass `nogui`/`text` on the kernel
 # command line for the emergency TTY. Use `make run-headless` for serial only.
 run qemu: $(TARGET)
 ifeq ($(ARCH), x86_64)
-	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) -m 256M \
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) -m 512M \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
 		-device e1000,netdev=net0 $(QEMU_VGA) -display gtk,zoom-to-fit=on -serial stdio
 else ifneq ($(filter $(ARCH), aarch64 arm64),)

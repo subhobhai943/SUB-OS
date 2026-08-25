@@ -35,6 +35,7 @@
 #include <drivers/hpet.h>
 #include <drivers/nvram.h>
 #include <drivers/lpt.h>
+#include <kernel/ktime.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
@@ -715,6 +716,19 @@ static int applet_iodev(int argc, char** argv) {
             io_free_irp(irp);
         }
     }
+    return 0;
+}
+
+static int applet_ktime(int argc, char** argv) {
+    (void)argc; (void)argv;
+    uint64_t ns = ktime_ns();
+    printk(ANSI_BRIGHT_CYAN "Monotonic clock (ktime):\n" ANSI_RESET);
+    printk("  Source : %s%s\n", ktime_source(),
+           ktime_is_highres() ? " (nanosecond resolution)" : " (10 ms tick)");
+    printk("  Uptime : %llu.%03llu s (%llu ns)\n",
+           (unsigned long long)(ns / 1000000000ULL),
+           (unsigned long long)((ns / 1000000ULL) % 1000ULL),
+           (unsigned long long)ns);
     return 0;
 }
 
@@ -2465,6 +2479,7 @@ static const lazybox_applet_t applets[] = {
     {"reg",           applet_reg,           "reg query|add|set|stats",   "NT configuration registry",  "Kernel"},
     {"iodev",         applet_iodev,         "iodev",                     "NT I/O Manager devices & IRP","Kernel"},
     {"hpet",          applet_hpet,          "hpet",                      "High Precision Event Timer",  "Hardware"},
+    {"ktime",         applet_ktime,         "ktime",                     "Monotonic high-res clock",    "Kernel"},
     {"nvram",         applet_nvram,         "nvram",                     "Dump CMOS NVRAM bytes",       "Hardware"},
     {"lpt",           applet_lpt,           "lpt [text]",                "Send text to LPT1 parallel",  "Hardware"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},

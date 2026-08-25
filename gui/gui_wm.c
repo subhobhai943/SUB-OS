@@ -616,15 +616,24 @@ void gui_wm_render(void) {
         gui_window_t* win = gui_wm_get_window(g_window_order[i]);
         if (!win || !win->visible || win->minimized) continue;
 
-        gui_gfx_draw_shadow(win->x, win->y, win->width, win->height, 6);
+        // A larger, softer drop shadow reads as real depth on the HD desktop.
+        gui_gfx_draw_shadow(win->x, win->y, win->width, win->height,
+                            win->active ? 12 : 7);
 
         uint32_t border = win->active ? GUI_THEME_PRIMARY : GUI_THEME_BORDER;
         gui_gfx_draw_rect(win->x, win->y, win->width, win->height, border);
 
-        uint32_t top_bg = win->active ? 0xFF1E293B : 0xFF0F172A;
-        uint32_t bot_bg = win->active ? 0xFF0F172A : 0xFF0A0E1A;
+        // Brighter, more saturated titlebar when focused; muted when not.
+        uint32_t top_bg = win->active ? 0xFF24345A : 0xFF141C2E;
+        uint32_t bot_bg = win->active ? 0xFF141E38 : 0xFF0B1120;
         gui_gfx_draw_gradient_v(win->x + 1, win->y + 1, win->width - 2,
                                 GUI_TITLEBAR_HEIGHT - 1, top_bg, bot_bg);
+
+        // Accent underline on the active window's titlebar; plain divider otherwise.
+        if (win->active) {
+            gui_gfx_fill_rect(win->x + 1, win->y + GUI_TITLEBAR_HEIGHT - 1,
+                              win->width - 2, 2, GUI_THEME_PRIMARY);
+        }
         gui_gfx_draw_line(win->x, win->y + GUI_TITLEBAR_HEIGHT,
                           win->x + win->width - 1, win->y + GUI_TITLEBAR_HEIGHT, border);
 
