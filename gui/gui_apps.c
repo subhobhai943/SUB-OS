@@ -8,6 +8,7 @@
 #include <mm/kmalloc.h>
 #include <mm/pmm.h>
 #include <kernel/printk.h>
+#include <kernel/rust.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 
@@ -352,5 +353,196 @@ void gui_app_about_launch(int x, int y, int w, int h) {
     gui_window_t* win = gui_wm_create_window("About SUB-OS", x, y, (w > 0) ? w : 320, (h > 0) ? h : 160);
     if (win) {
         win->paint = about_paint;
+    }
+}
+
+// =================================================================
+// 7. Conway's Game of Life (interactive cellular automaton)
+// =================================================================
+#define LIFE_COLS 56
+#define LIFE_ROWS 34
+#define LIFE_TOOLBAR_H 24
+#define LIFE_STATUS_H  22
+
+typedef struct {
+    uint8_t cur[LIFE_ROWS][LIFE_COLS];
+    uint8_t nxt[LIFE_ROWS][LIFE_COLS];
+    bool     running;
+    uint32_t generation;
+    uint32_t frame;
+} life_data_t;
+
+// Seed the grid from the Rust ChaCha20 CSPRNG (~28% of cells alive).
+static void life_randomize(life_data_t* ld) {
+    // Static (not on the stack): the desktop is single-threaded, and this keeps
+    // ~1.9 KB off the kernel stack that the GUI thread runs on.
+    static uint8_t rnd[LIFE_ROWS * LIFE_COLS];
+    if (rust_csprng_get_random(rnd, sizeof(rnd)) != 0) {
+        // Deterministic fallback if the CSPRNG is unavailable.
+        for (size_t i = 0; i < sizeof(rnd); i++) {
+            rnd[i] = (uint8_t)((i * 2654435761u) >> 24);
+        }
+    }
+    for (int r = 0; r < LIFE_ROWS; r++) {
+        for (int c = 0; c < LIFE_COLS; c++) {
+            ld->cur[r][c] = ((rnd[r * LIFE_COLS + c] & 7) < 2) ? 1 : 0;
+        }
+    }
+    ld->generation = 0;
+}
+
+// One tick of the B3/S23 rule with dead borders.
+static void life_step(life_data_t* ld) {
+    for (int r = 0; r < LIFE_ROWS; r++) {
+        for (int c = 0; c < LIFE_COLS; c++) {
+            int n = 0;
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int rr = r + dr, cc = c + dc;
+                    if (rr >= 0 && rr < LIFE_ROWS && cc >= 0 && cc < LIFE_COLS && ld->cur[rr][cc]) {
+                        n++;
+                    }
+                }
+            }
+            uint8_t alive = ld->cur[r][c];
+            ld->nxt[r][c] = ((alive && (n == 2 || n == 3)) || (!alive && n == 3)) ? 1 : 0;
+        }
+    }
+    memcpy(ld->cur, ld->nxt, sizeof(ld->cur));
+    ld->generation++;
+}
+
+// Grid cell size and top-left, derived from the current window geometry so the
+// board scales when the window is resized. Kept identical in paint and event.
+static void life_geometry(gui_window_t* win, int* cell, int* gw, int* gh, int* gx_rel, int* grid_top_rel) {
+    int avail_w = win->width - 16;
+    int avail_h = win->height - GUI_TITLEBAR_HEIGHT - LIFE_TOOLBAR_H - LIFE_STATUS_H;
+    int cw = avail_w / LIFE_COLS;
+    int ch = avail_h / LIFE_ROWS;
+    int sz = (cw < ch) ? cw : ch;
+    if (sz < 2) sz = 2;
+    *cell = sz;
+    *gw = sz * LIFE_COLS;
+    *gh = sz * LIFE_ROWS;
+    *gx_rel = (win->width - *gw) / 2;
+    *grid_top_rel = LIFE_TOOLBAR_H;
+}
+
+static const char* const LIFE_BTNS[4] = { "Play", "Step", "Random", "Clear" };
+#define LIFE_BTN_W 66
+#define LIFE_BTN_GAP 72
+
+static void life_paint(gui_window_t* win) {
+    life_data_t* ld = (life_data_t*)win->user_data;
+    if (!ld) return;
+
+    int cx  = win->x + 8;
+    int top = win->y + GUI_TITLEBAR_HEIGHT;
+
+    // Toolbar
+    for (int i = 0; i < 4; i++) {
+        int bx = cx + i * LIFE_BTN_GAP;
+        int by = top + 3;
+        gui_gfx_fill_rect(bx, by, LIFE_BTN_W, 18, GUI_THEME_BG_DARK);
+        gui_gfx_draw_rect(bx, by, LIFE_BTN_W, 18, GUI_THEME_BORDER);
+        const char* label = (i == 0 && ld->running) ? "Pause" : LIFE_BTNS[i];
+        int tw = (int)strlen(label) * 8;
+        gui_gfx_draw_string(bx + (LIFE_BTN_W - tw) / 2, by + 5, label, GUI_THEME_TEXT_MAIN);
+    }
+
+    // Board
+    int cell, gw, gh, gx_rel, grid_top_rel;
+    life_geometry(win, &cell, &gw, &gh, &gx_rel, &grid_top_rel);
+    int gx = win->x + gx_rel;
+    int gy = top + grid_top_rel;
+
+    gui_gfx_fill_rect(gx, gy, gw, gh, 0xFF0B1220);
+    int pop = 0;
+    for (int r = 0; r < LIFE_ROWS; r++) {
+        for (int c = 0; c < LIFE_COLS; c++) {
+            if (ld->cur[r][c]) {
+                pop++;
+                gui_gfx_fill_rect(gx + c * cell, gy + r * cell,
+                                  (cell > 2) ? cell - 1 : cell,
+                                  (cell > 2) ? cell - 1 : cell, GUI_THEME_SUCCESS);
+            }
+        }
+    }
+    gui_gfx_draw_rect(gx, gy, gw, gh, GUI_THEME_BORDER);
+
+    // Status line
+    char buf[96];
+    snprintf(buf, sizeof(buf), "Gen %u   Pop %d   %s   -- click cells to toggle",
+             ld->generation, pop, ld->running ? "RUNNING" : "paused");
+    gui_gfx_draw_string(cx, gy + gh + 5, buf, GUI_THEME_TEXT_MUTED);
+
+    // Advance the automaton while running, throttled so it is watchable.
+    if (ld->running) {
+        ld->frame++;
+        if ((ld->frame & 3) == 0) {
+            life_step(ld);
+        }
+    }
+}
+
+static void life_event(gui_window_t* win, const gui_event_t* ev) {
+    life_data_t* ld = (life_data_t*)win->user_data;
+    if (!ld) return;
+
+    if (ev->type == GUI_EVENT_CLOSE) {
+        if (win->user_data) {
+            kfree(win->user_data);
+            win->user_data = NULL;
+        }
+        return;
+    }
+
+    // Act only on the press edge so buttons and cells do not re-fire while held.
+    if (ev->type != GUI_EVENT_MOUSE_DOWN) return;
+
+    int rel_x = ev->rel_x;
+    int rel_y = ev->rel_y;
+
+    // Toolbar row
+    if (rel_y >= 3 && rel_y < LIFE_TOOLBAR_H) {
+        int i = (rel_x - 8) / LIFE_BTN_GAP;
+        int within = (rel_x - 8) - i * LIFE_BTN_GAP;
+        if (i >= 0 && i < 4 && within >= 0 && within < LIFE_BTN_W) {
+            switch (i) {
+                case 0: ld->running = !ld->running; break;
+                case 1: life_step(ld); break;
+                case 2: life_randomize(ld); break;
+                case 3: memset(ld->cur, 0, sizeof(ld->cur)); ld->generation = 0; break;
+            }
+        }
+        return;
+    }
+
+    // Board: toggle the clicked cell
+    int cell, gw, gh, gx_rel, grid_top_rel;
+    life_geometry(win, &cell, &gw, &gh, &gx_rel, &grid_top_rel);
+    int lx = rel_x - gx_rel;
+    int ly = rel_y - grid_top_rel;
+    if (lx >= 0 && ly >= 0 && lx < gw && ly < gh) {
+        int c = lx / cell;
+        int r = ly / cell;
+        if (r >= 0 && r < LIFE_ROWS && c >= 0 && c < LIFE_COLS) {
+            ld->cur[r][c] ^= 1;
+        }
+    }
+}
+
+void gui_app_life_launch(int x, int y, int w, int h) {
+    gui_window_t* win = gui_wm_create_window("Game of Life", x, y, (w > 0) ? w : 480, (h > 0) ? h : 380);
+    if (win) {
+        life_data_t* ld = (life_data_t*)kzalloc(sizeof(life_data_t));
+        if (ld) {
+            life_randomize(ld);
+            ld->running = true;
+        }
+        win->user_data = ld;
+        win->paint = life_paint;
+        win->handle_event = life_event;
     }
 }

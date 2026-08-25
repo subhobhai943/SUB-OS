@@ -8,6 +8,7 @@
 pub mod printk;
 pub mod drivers;
 pub mod crypto;
+pub mod checksum;
 pub mod fs;
 pub mod kernel;
 pub mod storage;
@@ -41,6 +42,13 @@ pub extern "C" fn rust_kernel_init() -> i32 {
 
     // Ping Rust watchdog
     kernel::watchdog::rust_watchdog_ping(1);
+
+    // Self-test the checksum engine against a known vector ("SUB-OS").
+    let crc = checksum::crc32c(b"SUB-OS");
+    kprintln!(
+        "\x1b[32mRUST:\x1b[0m Checksum engine online (CRC-32C, Adler-32, FNV-1a) [crc32c(\"SUB-OS\")=0x{:08x}]",
+        crc
+    );
 
     0
 }

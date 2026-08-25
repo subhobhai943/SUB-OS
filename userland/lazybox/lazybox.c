@@ -463,6 +463,25 @@ static int applet_crc32(int argc, char** argv) {
     return 0;
 }
 
+static int applet_cksum(int argc, char** argv) {
+    const char* str = (argc >= 2) ? argv[1] : "";
+    size_t len = strlen(str);
+    const uint8_t* buf = (const uint8_t*)str;
+
+    // All three come from the memory-safe Rust checksum engine
+    // (rust/src/checksum/mod.rs), with a C bridge on non-x86 targets.
+    uint32_t crc = rust_crc32c(buf, len);
+    uint32_t adl = rust_adler32(buf, len);
+    uint64_t fnv = rust_fnv1a64(buf, len);
+
+    printk(ANSI_BRIGHT_CYAN "Rust checksum engine" ANSI_RESET " for \"%s\" (%llu bytes):\n",
+           str, (unsigned long long)len);
+    printk("  CRC-32C   : 0x%08X\n", crc);
+    printk("  Adler-32  : 0x%08X\n", adl);
+    printk("  FNV-1a-64 : 0x%016llX\n", (unsigned long long)fnv);
+    return 0;
+}
+
 static int applet_rand(int argc, char** argv) {
     int count = (argc >= 2) ? atoi(argv[1]) : 4;
     printk("Random Integers: ");
@@ -2170,6 +2189,7 @@ static const lazybox_applet_t applets[] = {
     {"md5sum",        applet_md5sum,        "md5sum <file|text>",        "Compute MD5 hash",           "Crypto"},
     {"sha256sum",     applet_sha256sum,     "sha256sum <file|text>",     "Compute SHA-256 hash",       "Crypto"},
     {"crc32",         applet_crc32,         "crc32 <text>",              "Calculate CRC32 checksum",   "Crypto"},
+    {"cksum",         applet_cksum,         "cksum <text>",              "Rust CRC-32C/Adler-32/FNV",  "Crypto"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},

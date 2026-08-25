@@ -71,6 +71,11 @@ typedef struct {
 int rust_kernel_init(void);
 const char* rust_kernel_status(void);
 
+// Checksums & Non-Cryptographic Hashing (Rust)
+uint32_t rust_crc32c(const uint8_t* data, size_t len);
+uint32_t rust_adler32(const uint8_t* data, size_t len);
+uint64_t rust_fnv1a64(const uint8_t* data, size_t len);
+
 // Cryptography
 int rust_chacha20_crypt(const uint8_t* key, const uint8_t* nonce, uint32_t counter, uint8_t* data, size_t len);
 int rust_csprng_get_random(uint8_t* buffer, size_t len);

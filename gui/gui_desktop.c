@@ -56,6 +56,7 @@ static const desktop_app_t g_apps[] = {
     { "Editor",     GUI_ICON_FILE,     gui_app_editor_launch,   120,  50, 500, 330 },
     { "Calculator", GUI_ICON_CALC,     gui_app_calc_launch,     260, 100, 220, 240 },
     { "Paint",      GUI_ICON_PAINT,    gui_app_paint_launch,    200,  60, 360, 260 },
+    { "Life",       GUI_ICON_FLASK,    gui_app_life_launch,     240,  70, 480, 380 },
     { "Clock",      GUI_ICON_CLOCK,    gui_app_clock_launch,    460, 120, 280, 260 },
     { "Settings",   GUI_ICON_SETTINGS, gui_app_settings_launch, 160,  60, 400, 320 },
     { "About",      GUI_ICON_INFO,     gui_app_about_launch,    240, 140, 330, 170 },
@@ -63,7 +64,8 @@ static const desktop_app_t g_apps[] = {
 #define APP_COUNT ((int)(sizeof(g_apps) / sizeof(g_apps[0])))
 
 // Which of the above appear on the desktop itself.
-static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 10 };
+// Indices into g_apps[]: Terminal, Files, Monitor, Kernel Log, KTest, Life, Settings.
+static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 11 };
 #define DESKTOP_ICON_COUNT ((int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0])))
 
 static bool g_start_menu_open   = false;

@@ -215,3 +215,39 @@ int rust_aead_decrypt(const uint8_t* key, const uint8_t* nonce, const uint8_t* a
     if (cipher && plain_out && cipher_len > 0) memcpy(plain_out, cipher, cipher_len);
     return 0;
 }
+
+// --- Checksums & non-cryptographic hashing (C fallback for non-x86 targets) ---
+// These mirror rust/src/checksum/mod.rs bit-for-bit so callers get identical
+// results whether the native Rust staticlib or this bridge is linked.
+uint32_t rust_crc32c(const uint8_t* data, size_t len) {
+    if (!data) return 0;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int b = 0; b < 8; b++) {
+            uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0x82F63B78u & mask);
+        }
+    }
+    return ~crc;
+}
+
+uint32_t rust_adler32(const uint8_t* data, size_t len) {
+    if (!data) return 1;
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < len; i++) {
+        a = (a + data[i]) % 65521u;
+        b = (b + a) % 65521u;
+    }
+    return (b << 16) | a;
+}
+
+uint64_t rust_fnv1a64(const uint8_t* data, size_t len) {
+    uint64_t hash = 0xcbf29ce484222325ull;
+    if (!data) return hash;
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 0x00000100000001B3ull;
+    }
+    return hash;
+}
