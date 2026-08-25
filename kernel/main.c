@@ -248,6 +248,14 @@ static void subos_modular_core_boot(void) {
     ktest_register_builtin_suites();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
+#if defined(__x86_64__)
+    /* Prove real kernel-thread context switching before hardware interrupts
+     * are enabled: the Weave scheduler drives a batch of cooperative threads
+     * to completion on their own stacks and returns cleanly to this boot
+     * thread. Interrupts are still masked here, so the run is deterministic. */
+    weave_selftest();
+#endif
+
     // Hardware Interrupts
     printk(KERN_INFO "[14/14] Enabling Hardware Interrupts... ");
     arch_enable_interrupts();

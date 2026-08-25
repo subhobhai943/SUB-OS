@@ -26,6 +26,20 @@ typedef struct task_struct {
     int priority;
     int time_slice;
     int exit_code;
+
+    /* --- SUB-OS "Weave" scheduler context ---------------------------------
+     * ctx_sp is the saved stack pointer handed to sub_ctx_switch(); it is
+     * pointer-sized so the same struct works on 64- and 32-bit targets.
+     * A task lives in exactly one lane while it is runnable; weave_credit is
+     * the quantum it has left in that lane, and weave_on marks it as an active
+     * participant in the run rotation (so a bare kernel idle task that merely
+     * calls sched_yield() is never enqueued). */
+    void*    ctx_sp;
+    uint32_t weave_lane;
+    uint32_t weave_credit;
+    uint64_t sched_runs;
+    uint8_t  weave_on;
+
     struct list_head list;
     struct list_head all_list;
 } task_t;

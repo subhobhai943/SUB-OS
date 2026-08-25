@@ -37,6 +37,10 @@
   - Once the VBE adapter is in graphics mode the VGA text buffer stops being scanned out, so the console would be invisible on the display even though it still reaches serial. fbcon renders the console into the framebuffer instead, the way Linux fbcon does.
   - **VT100 subset**: SGR colours, cursor addressing, relative moves, erase-display and erase-line, save/restore — enough for full-screen curses-style programs such as the **nano** editor to render correctly.
   - Presents a fixed **80x25** grid (matching `TTY_WIDTH`/`TTY_HEIGHT`, which the userland assumes) with the glyph cell scaled to fill whatever resolution is active. `video=WIDTHxHEIGHT` on the kernel command line selects the mode, defaulting to `1280x720`.
+- 🧶 **Weave Scheduler & Real Context Switching (`kernel/sched.c`, `arch/*/cpu/switch.*`)**:
+  - **Genuine multitasking, not a state relabel**: `sub_ctx_switch()` is per-architecture assembly (x86_64/aarch64/armv8i) that saves and restores the callee-saved register set plus flags on each thread's own kernel stack, with a first-run trampoline that launches a freshly forged thread frame.
+  - **Tiered rotation with behavioural weaving**: runnable threads thread through `WEAVE_NLANES` priority lanes; the dispatcher always pulls the lowest non-empty lane round-robin. A thread that yields voluntarily is *woven up* toward low latency, one that burns its whole quantum and is preempted is *woven down* toward throughput — the lane floats on observed behaviour, not a static nice value.
+  - **Boot-time self-test**: before hardware interrupts come up, the Weave scheduler drives three cooperative kernel threads to completion on separate stacks (verified under QEMU: correct round-robin interleave, clean return to the boot thread) — proof the switch is real.
 - 🧵 **Kernel Concurrency Core (`kernel/wait.c`, `kernel/futex.c`, `kernel/rcu.c`)**:
   - **Wait Queues & Completions**: Sleeper parking with timed waits, one-shot completion barriers, and a static entry pool so a blocking path never re-enters the allocator (`waitinfo`).
   - **Futex Hash Table**: 32 buckets with value re-check on the slow path, requeue support, and an `fmutex_t` sleeping mutex built on the uncontended-fastpath protocol (`futexinfo`).
@@ -104,7 +108,7 @@
   - **X.509 Cryptographic Keyring** with signature verification.
   - In-Kernel **eBPF Register Virtual Machine** and verifier.
   - **io_uring** lockless asynchronous Submission/Completion ring buffers.
-  - Preemptive multi-tasking scheduler with Round-Robin quantum and spinlock synchronization.
+  - Weave tiered-rotation scheduler with real per-arch context switching and spinlock synchronization (see the Weave Scheduler entry above).
   - Systemd-style unit manager (`systemctl`), cron background scheduler (`crond`), and RFC 5424 Syslog engine.
 - 🧰 **LazyBox Userland Suite (85+ Linux, Rust, C++ & SUB-Lang Applets)**:
   - Interactive shell with history, quote-aware tokenization, tab autocompletion, ANSI cursor editing, and script runner (`sh`).
