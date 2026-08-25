@@ -9,6 +9,7 @@
 #include <mm/pmm.h>
 #include <kernel/printk.h>
 #include <kernel/rust.h>
+#include <kernel/nt/ob.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 
@@ -647,5 +648,123 @@ void gui_app_rustlab_launch(int x, int y, int w, int h) {
         win->user_data = rd;
         win->paint = rustlab_paint;
         win->handle_event = rustlab_event;
+    }
+}
+
+// =================================================================
+// 9. NT Object Browser -- a WinObj-style view of the object namespace
+// =================================================================
+typedef struct { ob_object_t* obj; int depth; } objrow_t;
+#define OBJBROWSE_MAX_ROWS 96
+
+typedef struct {
+    int scroll;
+} objbrowse_data_t;
+
+static int objbrowse_flatten(ob_object_t* obj, int depth, objrow_t* rows, int max, int count) {
+    if (!obj || count >= max) return count;
+    rows[count].obj = obj;
+    rows[count].depth = depth;
+    count++;
+    if (obj->type == OB_TYPE_DIRECTORY) {
+        int c = ob_dir_child_count(obj);
+        for (int i = 0; i < c && count < max; i++) {
+            count = objbrowse_flatten(ob_dir_child(obj, i), depth + 1, rows, max, count);
+        }
+    }
+    return count;
+}
+
+static uint32_t objbrowse_type_color(ob_type_t t) {
+    switch (t) {
+        case OB_TYPE_DIRECTORY: return GUI_THEME_PRIMARY;
+        case OB_TYPE_EVENT:     return GUI_THEME_SUCCESS;
+        case OB_TYPE_SEMAPHORE: return GUI_THEME_WARNING;
+        case OB_TYPE_MUTANT:    return GUI_THEME_ACCENT;
+        default:                return GUI_THEME_TEXT_MUTED;
+    }
+}
+
+static void objbrowse_paint(gui_window_t* win) {
+    objbrowse_data_t* bd = (objbrowse_data_t*)win->user_data;
+    if (!bd) return;
+
+    int cx  = win->x + 12;
+    int top = win->y + GUI_TITLEBAR_HEIGHT;
+
+    // Header + live stats
+    uint32_t objs = 0, handles = 0, per[OB_TYPE_MAX];
+    ob_get_stats(&objs, &handles, per);
+    gui_gfx_draw_string_16_shadow(cx, top + 8, "NT Object Namespace  \\", GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
+    char hdr[80];
+    snprintf(hdr, sizeof(hdr), "%u objects   %u handles open   (scroll: click top/bottom)", objs, handles);
+    gui_gfx_draw_string(cx, top + 28, hdr, GUI_THEME_TEXT_MUTED);
+
+    // Flatten the live namespace
+    objrow_t rows[OBJBROWSE_MAX_ROWS];
+    int total = objbrowse_flatten(ob_root_directory(), 0, rows, OBJBROWSE_MAX_ROWS, 0);
+
+    int list_top = top + 44;
+    int row_h = 13;
+    int visible = (win->height - (list_top - win->y) - 10) / row_h;
+    if (visible < 1) visible = 1;
+
+    if (bd->scroll > total - visible) bd->scroll = total - visible;
+    if (bd->scroll < 0) bd->scroll = 0;
+
+    for (int i = 0; i < visible && (bd->scroll + i) < total; i++) {
+        objrow_t* r = &rows[bd->scroll + i];
+        ob_object_t* o = r->obj;
+        int y = list_top + i * row_h;
+        int x = cx + r->depth * 14;
+
+        char line[96];
+        if (o->type == OB_TYPE_DIRECTORY) {
+            snprintf(line, sizeof(line), "%s\\", o->name);
+        } else {
+            snprintf(line, sizeof(line), "%s", o->name);
+        }
+        gui_gfx_draw_string(x, y, line, objbrowse_type_color(o->type));
+
+        char meta[48];
+        snprintf(meta, sizeof(meta), "%-9s r=%d h=%d", ob_type_name(o->type), o->ref_count, o->handle_count);
+        gui_gfx_draw_string(win->x + win->width - 180, y, meta, GUI_THEME_TEXT_DIM);
+    }
+
+    // Scroll indicator
+    if (total > visible) {
+        char sc[32];
+        snprintf(sc, sizeof(sc), "%d-%d / %d", bd->scroll + 1,
+                 (bd->scroll + visible < total) ? bd->scroll + visible : total, total);
+        gui_gfx_draw_string(win->x + win->width - 90, top + 28, sc, GUI_THEME_TEXT_DIM);
+    }
+}
+
+static void objbrowse_event(gui_window_t* win, const gui_event_t* ev) {
+    objbrowse_data_t* bd = (objbrowse_data_t*)win->user_data;
+    if (!bd) return;
+
+    if (ev->type == GUI_EVENT_CLOSE) {
+        if (win->user_data) { kfree(win->user_data); win->user_data = NULL; }
+        return;
+    }
+    if (ev->type != GUI_EVENT_MOUSE_DOWN) return;
+
+    // Top third scrolls up, bottom third scrolls down.
+    if (ev->rel_y < win->height / 3) {
+        bd->scroll -= 3;
+    } else if (ev->rel_y > (win->height * 2) / 3) {
+        bd->scroll += 3;
+    }
+    if (bd->scroll < 0) bd->scroll = 0;
+}
+
+void gui_app_objbrowse_launch(int x, int y, int w, int h) {
+    gui_window_t* win = gui_wm_create_window("Object Browser", x, y, (w > 0) ? w : 460, (h > 0) ? h : 340);
+    if (win) {
+        objbrowse_data_t* bd = (objbrowse_data_t*)kzalloc(sizeof(objbrowse_data_t));
+        win->user_data = bd;
+        win->paint = objbrowse_paint;
+        win->handle_event = objbrowse_event;
     }
 }

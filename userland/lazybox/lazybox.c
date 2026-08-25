@@ -30,6 +30,7 @@
 #include <mm/kmalloc.h>
 #include <kernel/rust.h>
 #include <kernel/nt/ob.h>
+#include <kernel/nt/reg.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
@@ -585,6 +586,77 @@ static int applet_ntobj(int argc, char** argv) {
     ke_lower_irql(old);
     printk("lowered back to %d\n", ke_get_current_irql());
     return 0;
+}
+
+static int reg_query_cmd(const char* path) {
+    reg_key_t* key = reg_open_key(path);
+    if (!key) {
+        printk(KERN_ERR "reg: key '%s' not found\n", path);
+        return 1;
+    }
+    printk(ANSI_BRIGHT_CYAN "%s\n" ANSI_RESET, path);
+
+    int vc = reg_enum_value_count(key);
+    if (vc == 0) {
+        printk("    (no values)\n");
+    }
+    for (int i = 0; i < vc; i++) {
+        reg_value_t* v = reg_enum_value(key, i);
+        char rendered[REG_STR_MAX + 32];
+        reg_value_to_string(v, rendered, sizeof(rendered));
+        printk("    " ANSI_YELLOW "%-20s" ANSI_RESET "  %-11s  %s\n",
+               v->name, reg_type_name(v->type), rendered);
+    }
+
+    int kc = reg_enum_key_count(key);
+    for (int i = 0; i < kc; i++) {
+        reg_key_t* sub = reg_enum_key(key, i);
+        printk(ANSI_BRIGHT_GREEN "    [%s]\n" ANSI_RESET, sub->name);
+    }
+    return 0;
+}
+
+static int applet_reg(int argc, char** argv) {
+    if (argc < 2) {
+        printk("Usage: reg query <\\path>\n");
+        printk("       reg add   <\\path>\n");
+        printk("       reg set   <\\path> <name> <dword|sz> <value>\n");
+        printk("       reg stats\n");
+        return 1;
+    }
+
+    if (strcmp(argv[1], "stats") == 0) {
+        uint32_t keys = 0, values = 0;
+        reg_get_stats(&keys, &values);
+        printk("Registry: %u keys, %u values under \\Registry\n", keys, values);
+        return 0;
+    }
+    if (strcmp(argv[1], "query") == 0) {
+        return reg_query_cmd((argc >= 3) ? argv[2] : "\\Registry");
+    }
+    if (strcmp(argv[1], "add") == 0 && argc >= 3) {
+        reg_key_t* k = reg_create_key(argv[2]);
+        if (!k) { printk(KERN_ERR "reg: failed to create '%s'\n", argv[2]); return 1; }
+        printk("Created key %s\n", argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "set") == 0 && argc >= 6) {
+        reg_key_t* k = reg_open_key(argv[2]);
+        if (!k) { printk(KERN_ERR "reg: key '%s' not found\n", argv[2]); return 1; }
+        if (strcmp(argv[4], "dword") == 0) {
+            reg_set_dword(k, argv[3], (uint32_t)atoi(argv[5]));
+        } else if (strcmp(argv[4], "sz") == 0) {
+            reg_set_sz(k, argv[3], argv[5]);
+        } else {
+            printk("reg: unknown type '%s' (use dword or sz)\n", argv[4]);
+            return 1;
+        }
+        printk("Set %s\\%s\n", argv[2], argv[3]);
+        return 0;
+    }
+
+    printk("reg: unrecognised sub-command '%s'\n", argv[1]);
+    return 1;
 }
 
 static int applet_rand(int argc, char** argv) {
@@ -2298,6 +2370,7 @@ static const lazybox_applet_t applets[] = {
     {"rle",           applet_rle,           "rle <text>",                "Rust RLE compress round-trip","Crypto"},
     {"objdir",        applet_objdir,        "objdir [\\path]",            "List the NT object namespace","Kernel"},
     {"ntobj",         applet_ntobj,         "ntobj",                     "NT Object Manager stats/demo","Kernel"},
+    {"reg",           applet_reg,           "reg query|add|set|stats",   "NT configuration registry",  "Kernel"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
