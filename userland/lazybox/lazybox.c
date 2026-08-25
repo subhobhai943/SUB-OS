@@ -50,6 +50,7 @@
 #include <drivers/virtio_gpu.h>
 #include <drivers/e1000e.h>
 #include <drivers/virtio_input.h>
+#include <gui/gui.h>
 #include <arch/arch.h>
 #include <kernel/printk.h>
 #include <lib/string.h>
@@ -1031,6 +1032,11 @@ static int applet_e1000e(int argc, char** argv) {
     (void)argc; (void)argv;
     e1000e_dump_stats();
     return 0;
+}
+
+static int applet_startx(int argc, char** argv) {
+    (void)argc; (void)argv;
+    return gui_start_desktop();
 }
 
 static int applet_readelf(int argc, char** argv) {
@@ -2242,6 +2248,9 @@ static const lazybox_applet_t applets[] = {
     {"cpufreq",       applet_cpufreq,       "cpufreq [-g governor]",     "CPU frequency & P-State gov", "System"},
     {"gpuinfo",       applet_gpuinfo,       "gpuinfo",                   "VirtIO-GPU hardware status", "Virtualization"},
     {"e1000e",        applet_e1000e,        "e1000e",                    "Intel e1000e PCIe NIC stats", "Network"},
+    {"startx",        applet_startx,        "startx",                    "Start SUB-OS Desktop GUI",   "Desktop"},
+    {"gui",           applet_startx,        "gui",                       "Start SUB-OS Desktop GUI",   "Desktop"},
+    {"desktop",       applet_startx,        "desktop",                   "Start SUB-OS Desktop GUI",   "Desktop"},
 
     // Kernel Core Diagnostics
     {"ktest",         applet_ktest,         "ktest [suite|-l]",          "Run in-kernel self-test suites", "Kernel"},

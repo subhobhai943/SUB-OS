@@ -27,16 +27,6 @@
 
 ## 🌟 Key Architecture & Capabilities
 
-- 🎨 **Boot Logo & Splash Screen (`init/bootlogo.c`, `scripts/mklogo.py`)**:
-  - **ASCII rendition** on the text console and serial line from the first moments of boot, before any display driver exists.
-  - **Optional graphical splash**: pass `splash` on the kernel command line to show the bitmap logo with an animated progress bar once the framebuffer is up. It is off by default on this branch so the text console stays visible; `splashtime=<ms>` tunes how long it is held.
-  - **4-bit palette-indexed asset**: 160x160 pixels in 12.5 KB rather than 100 KB, with a transparency mask so the mark composites onto the background instead of a flat rectangle.
-  - **Regenerable**: `python3 scripts/mklogo.py path/to/logo.png` rewrites `init/logo_data.c` from source artwork.
-- 🔤 **Shared 8x8 Console Font (`lib/font8x8.c`)**: one glyph table behind the framebuffer console and the 2D canvas rasterizer, replacing divergent private copies.
-- 🖵 **Framebuffer Console (`drivers/video/fbcon.c`)**:
-  - Once the VBE adapter is in graphics mode the VGA text buffer stops being scanned out, so the console would be invisible on the display even though it still reaches serial. fbcon renders the console into the framebuffer instead, the way Linux fbcon does.
-  - **VT100 subset**: SGR colours, cursor addressing, relative moves, erase-display and erase-line, save/restore — enough for full-screen curses-style programs such as the **nano** editor to render correctly.
-  - Presents a fixed **80x25** grid (matching `TTY_WIDTH`/`TTY_HEIGHT`, which the userland assumes) with the glyph cell scaled to fill whatever resolution is active. `video=WIDTHxHEIGHT` on the kernel command line selects the mode, defaulting to `1280x720`.
 - 🧶 **Weave Scheduler & Real Context Switching (`kernel/sched.c`, `arch/*/cpu/switch.*`)**:
   - **Genuine multitasking, not a state relabel**: `sub_ctx_switch()` is per-architecture assembly (x86_64/aarch64/armv8i) that saves and restores the callee-saved register set plus flags on each thread's own kernel stack, with a first-run trampoline that launches a freshly forged thread frame.
   - **Tiered rotation with behavioural weaving**: runnable threads thread through `WEAVE_NLANES` priority lanes; the dispatcher always pulls the lowest non-empty lane round-robin. A thread that yields voluntarily is *woven up* toward low latency, one that burns its whole quantum and is preempted is *woven down* toward throughput — the lane floats on observed behaviour, not a static nice value.
@@ -55,6 +45,26 @@
 - 🧪 **In-Kernel Test Harness (`kernel/ktest.c`)**:
   - KUnit-style suites with assertion macros, per-case pass/fail reporting and timing.
   - **6 built-in suites, 21 cases, 735 assertions** covering rbtree, kfifo, hashtable, RCU, futex, wait queues, page cache and libcore — runnable from the shell (`ktest`) or the desktop KTest Runner.
+- 🎨 **Boot Logo & Splash Screen (`init/bootlogo.c`, `scripts/mklogo.py`)**:
+  - **Two presentations of one artwork**: an ASCII rendition on the text console and serial line from the first moments of boot, then the real bitmap as a graphical splash once the video driver is up at step [5/14].
+  - **4-bit palette-indexed asset**: 160x160 pixels in 12.5 KB rather than 100 KB, with a transparency mask so the mark composites onto the gradient instead of a flat rectangle.
+  - **Animated progress bar** tied to the real boot stages, held for a minimum duration (`splashtime=<ms>`) so a sub-second boot still shows it; `nosplash`, `nogui` or `text` skip it.
+  - **Regenerable**: `python3 scripts/mklogo.py path/to/logo.png` rewrites `init/logo_data.c` from source artwork.
+- 🔤 **Shared 8x8 Console Font (`lib/font8x8.c`)**: one glyph table behind the framebuffer console, the 2D canvas rasterizer and the desktop compositor, replacing three divergent private copies.
+- 🖵 **Framebuffer Console (`drivers/video/fbcon.c`)**:
+  - Once the VBE adapter is in graphics mode the VGA text buffer stops being scanned out, so anything printed afterwards is invisible on the display even though it still reaches serial. fbcon renders the console into the framebuffer instead, the way Linux fbcon does.
+  - **VT100 subset**: SGR colours, cursor addressing (`H`/`f`), relative moves, erase-display and erase-line, save/restore — enough for full-screen curses-style programs such as the **nano** editor to render correctly.
+  - Presents a fixed **80x25** grid (matching `TTY_WIDTH`/`TTY_HEIGHT`, which the userland assumes) with the glyph cell scaled to fill whatever resolution is active.
+  - The TTY driver dispatches `tty_write`, `tty_clear` and `tty_set_cursor` to it, so leaving the desktop with `Esc` drops to a working console **inside the emulator**, not just on the host serial line.
+- 🖥️ **SUB-OS Graphical Desktop Environment (`gui/`)**:
+  - **SUB-WM Compositor**: 800x600 TrueColor double-buffered window manager with drag, corner resize, minimize/maximize/restore, edge snapping (left/right/maximize), tile and cascade layouts, and z-ordered painter's-algorithm compositing.
+  - **SUB-WT Widget Toolkit (`gui/gui_widgets.c`)**: Immediate-mode controls -- buttons, labels, checkboxes, radios, sliders, list boxes, text fields, tab bars, scrollbars, progress bars, sparklines and badges -- so an app rebuilds its interface from state each frame instead of maintaining a retained widget tree.
+  - **Icon Set (`gui/gui_icons.c`)**: 14 hand-drawn 16x16 palette-indexed glyphs, integer-scalable and tintable, driving the desktop grid, start menu and window chrome.
+  - **Modal Dialog Layer (`gui/gui_dialog.c`)**: Info, warning, error and confirm dialogs that dim the desktop and take exclusive input, with word-wrapped messages and callback results.
+  - **Desktop Shell (`gui/gui_desktop.c`)**: Gradient wallpaper with grid overlay, launcher icon grid, start menu, right-click context menu (tile / cascade / toggle grid), and a taskbar with per-window buttons, live CPU trace, memory badge and RTC clock.
+  - **Terminal Emulator (`gui/gui_terminal.c`)**: dispatches to the real LazyBox applet table and the shared shell builtins, capturing each command's `printk` output through a console sink. ANSI colours are translated per line, CP437 box and block characters fall back to ASCII, and there is 256 lines of scrollback plus command history.
+  - **Applications**: Terminal, File Explorer, System Monitor, Task Manager, Kernel Log viewer (live dmesg with severity colouring and scrollback), KTest Runner (drives the in-kernel suites and reports pass/fail), Text Editor, Calculator, Paint Studio, Clock & Calendar, Settings and About.
+  - **Keyboard Shortcuts**: `F5` cycle focus, `F6` cascade, `F7` tile, `F8` maximize, `F9` minimize, `Esc` exit to the kernel TTY.
 - ⚡ **Freestanding C++17 OOP Kernel Engine (`kernel/cpp/`)**:
   - **Bare-Metal C++ Runtime**: `operator new`/`delete`, sized deallocation, placement `new`, pure virtual handlers (`__cxa_pure_virtual`), and `.init_array` global constructor dispatcher.
   - **Modern Generic Containers**: Pure freestanding `Vector<T>`, `UniquePtr<T>` (with polymorphic converting constructors and custom deleters), dynamic `String`, and move semantics (`kernel::move`, `kernel::forward`).
@@ -224,9 +234,20 @@ make ARCH=armv8i
 make run ARCH=armv8i
 ```
 
-#### Graphical Window Emulation (Optional SDL/GTK GUI)
+#### Graphical Desktop Environment
+SUB-OS boots straight into the desktop. Pass `nogui`, `text`, `emergency` or
+`single` on the kernel command line to go directly to the kernel TTY instead;
+from inside the desktop, `Esc` (or Start -> Exit to Kernel TTY) drops to the
+same shell.
+
+The display mode is set with `video=WIDTHxHEIGHT` on the kernel command line
+(default `1280x720`, 16:9). Both the desktop and the framebuffer console adapt
+to whatever mode is active.
+
 ```bash
-make run-gui
+make run-gui         # Windowed, aspect-preserving scaling
+make run-fullscreen  # Fullscreen without stretching
+make run-vnc         # Headless: VNC server on localhost:5900
 ```
 
 ---
@@ -244,7 +265,7 @@ make run-gui
 | **Entertainment & Games** | `snake`, `matrix`, `calc`, `vtart` |
 | **Kernel & Tracing** | `lsmod`, `insmod`, `rmmod`, `slabinfo`, `trace`, `unshare`, `io_uring_test` |
 | **Diagnostics & Metrics**| `neofetch`, `uname`, `free`, `uptime`, `top`, `htop`, `ps`, `dmesg`, `vmstat`, `iostat` |
-| **System Control** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty` |
+| **System Control & GUI** | `clear`, `help`, `sleep`, `reboot`, `shutdown`, `poweroff`, `tty`, `startx`, `gui`, `desktop` |
 
 ---
 

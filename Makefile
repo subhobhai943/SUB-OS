@@ -279,10 +279,13 @@ CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.
                  drivers/input/mouse.c drivers/power/acpi.c drivers/power/cpufreq.c drivers/rtc/rtc.c drivers/sound/speaker.c \
                  drivers/net/e1000e.c drivers/virtio/virtio_gpu.c drivers/virtio/virtio_input.c
 
-# Userland
+# Userland & GUI Desktop Subsystem
 ifeq ($(CONFIG_USERLAND_LAZYBOX), y)
     CONFIG_SRCS-y += userland/lazybox/lazybox.c userland/lazybox/shell.c userland/lazybox/sh.c userland/lazybox/nano.c userland/lazybox/snake.c userland/lazybox/tree.c userland/lazybox/coreutils.c
 endif
+
+CONFIG_SRCS-y += gui/gui.c gui/gui_gfx.c gui/gui_cursor.c gui/gui_wm.c gui/gui_desktop.c gui/gui_apps.c \
+                 gui/gui_widgets.c gui/gui_icons.c gui/gui_dialog.c gui/gui_apps_ext.c gui/gui_terminal.c
 
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))
@@ -456,11 +459,34 @@ run-gui: $(TARGET)
 ifeq ($(ARCH), x86_64)
 	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
-		-device e1000,netdev=net0 -serial stdio
+		-device e1000,netdev=net0 $(QEMU_VGA) -display gtk,zoom-to-fit=on -serial stdio
 else ifneq ($(filter $(ARCH), aarch64 arm64),)
-	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
 else
-	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -serial stdio
+	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
+endif
+
+# Fullscreen without distortion: zoom-to-fit scales the guest while preserving
+# its aspect ratio, letterboxing rather than stretching on a wider panel.
+run-fullscreen: $(TARGET)
+ifeq ($(ARCH), x86_64)
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 $(QEMU_VGA) \
+		-display gtk,zoom-to-fit=on,show-cursor=on -full-screen -serial stdio
+else
+	@echo "run-fullscreen targets x86_64 only"
+endif
+
+run-vnc: $(TARGET)
+ifeq ($(ARCH), x86_64)
+	@echo "=== [QEMU VNC Server running at localhost:5900 (VNC Display :0)] ==="
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
+		-device e1000,netdev=net0 $(QEMU_VGA) -vnc :0 -serial stdio
+else
+	@echo "=== [QEMU VNC Server running at localhost:5900 (VNC Display :0)] ==="
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -vnc :0 -serial stdio
 endif
 
 run-server: $(IMAGE)

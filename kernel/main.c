@@ -71,6 +71,8 @@
 #include <drivers/virtio_gpu.h>
 #include <drivers/cpufreq.h>
 #include <drivers/virtio_input.h>
+#include <gui/gui.h>
+#include <init/init.h>
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
@@ -131,16 +133,17 @@ static void subos_modular_core_boot(void) {
     tsc_init();
     printk(ANSI_BRIGHT_GREEN "OK\n" ANSI_RESET);
 
-    // The framebuffer exists from here on. This kernel boots to a text console,
-    // so the graphical splash is opt-in via `splash` on the command line --
-    // raising it by default would hide the very console we are about to use.
-    // The ASCII logo printed at the top of boot covers the default case.
-    if (init_has_param("splash") && !init_has_param("nosplash")) {
+    // The framebuffer exists from here on, so raise the graphical splash unless
+    // a text console was requested. When it was, the adapter is still in graphics
+    // mode and the VGA text buffer is no longer scanned out, so move the console
+    // to the framebuffer or the rest of the boot log is visible only on the
+    // serial line. Remaining messages keep flowing to the serial line and dmesg.
+    bool want_splash = !(init_has_param("nogui") || init_has_param("text") ||
+                         init_has_param("emergency") || init_has_param("single") ||
+                         init_has_param("nosplash"));
+    if (want_splash) {
         boot_logo_splash_begin();
     } else {
-        // The adapter is in graphics mode from here on, so the VGA text buffer
-        // is no longer scanned out. Move the console to the framebuffer or the
-        // rest of the boot log is visible only on the serial line.
         fbcon_enable(true);
     }
 
@@ -268,15 +271,29 @@ static void subos_modular_core_boot(void) {
     weave_preempt_selftest();
 #endif
 
-    // Return the screen to the console before handing over to the shell.
-    boot_logo_splash_end();
+    // Boot directly into the GUI Desktop unless emergency text mode is requested.
+    bool emergency_text = init_has_param("nogui") || init_has_param("text") ||
+                          init_has_param("emergency") || init_has_param("single");
+
+    if (!emergency_text) {
+        printk(KERN_INFO "INIT: Booting directly into SUB-OS Graphical Desktop Environment...\n");
+        boot_logo_splash_end();
+        gui_start_desktop();
+        printk(KERN_INFO "INIT: GUI session closed. Entering Emergency Kernel TTY Mode.\n");
+    } else {
+        printk(KERN_INFO "INIT: Emergency text/kernel TTY mode requested via boot parameters.\n");
+        boot_logo_splash_end();
+    }
+
+    // The screen returns to the console before handing over to userland, whether
+    // the GUI session just closed or a text boot was requested.
     fbcon_enable(true);
 
     // Hand control to userland: /sbin/init is a separate static ELF that runs
     // in ring 3 with its own page tables and talks back only through INT 0x80.
     exec_run_builtin_init();
 
-    // Launch Shell
+    // Launch Shell (Emergency TTY Mode)
     shell_run();
 
     while (1) {
