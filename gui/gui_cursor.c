@@ -81,3 +81,51 @@ void gui_cursor_draw(void) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Save-under overlay: lets the compositor move the cursor without repainting
+// the whole scene. The block under the cursor (body + drop shadow) is stashed
+// before drawing and restored on the next frame.
+// ---------------------------------------------------------------------------
+#define CUR_SAVE_W (CURSOR_W + 3)
+#define CUR_SAVE_H (CURSOR_H + 3)
+
+static uint32_t g_save[CUR_SAVE_H * CUR_SAVE_W];
+static int g_save_x = -1, g_save_y = -1, g_save_w = 0, g_save_h = 0;
+
+// Put back whatever was under the cursor last frame (erasing it).
+void gui_cursor_restore_under(void) {
+    if (g_save_x < 0) return;
+    uint32_t* bb = gui_gfx_get_backbuffer();
+    if (!bb) { g_save_x = -1; return; }
+    int W = gui_gfx_get_width();
+    for (int j = 0; j < g_save_h; j++) {
+        uint32_t* dst = &bb[(g_save_y + j) * W + g_save_x];
+        const uint32_t* src = &g_save[j * g_save_w];
+        for (int i = 0; i < g_save_w; i++) dst[i] = src[i];
+    }
+    g_save_x = -1;
+}
+
+// Stash the block under the current cursor position, then draw the cursor.
+void gui_cursor_composite(void) {
+    uint32_t* bb = gui_gfx_get_backbuffer();
+    if (!bb) return;
+    int W = gui_gfx_get_width();
+    int H = gui_gfx_get_height();
+
+    int x = g_cur_x, y = g_cur_y;
+    int w = CUR_SAVE_W, h = CUR_SAVE_H;
+    if (x + w > W) w = W - x;
+    if (y + h > H) h = H - y;
+    if (w <= 0 || h <= 0) { g_save_x = -1; gui_cursor_draw(); return; }
+
+    for (int j = 0; j < h; j++) {
+        const uint32_t* srow = &bb[(y + j) * W + x];
+        uint32_t* d = &g_save[j * w];
+        for (int i = 0; i < w; i++) d[i] = srow[i];
+    }
+    g_save_x = x; g_save_y = y; g_save_w = w; g_save_h = h;
+
+    gui_cursor_draw();
+}

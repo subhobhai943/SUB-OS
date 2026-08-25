@@ -70,6 +70,14 @@ typedef struct gui_window {
 
     void* user_data;
 
+    // Open animation: the window grows from a fraction of its final size to
+    // full over a short interval. anim_open_ns == 0 means no animation running.
+    uint64_t anim_open_ns;   // ktime_ns() when the open animation began
+    int      target_w;       // final geometry the animation resolves to
+    int      target_h;
+    int      center_x;       // fixed centre the growth expands around
+    int      center_y;
+
     void (*paint)(struct gui_window* win);
     void (*handle_event)(struct gui_window* win, const gui_event_t* ev);
 } gui_window_t;
@@ -80,6 +88,10 @@ void gui_wm_init(void);
 void gui_wm_set_workarea(int width, int height);
 
 gui_window_t* gui_wm_create_window(const char* title, int x, int y, int w, int h);
+
+// Advance any running open animations; returns true while at least one window
+// is still animating (so the compositor keeps redrawing during the effect).
+bool          gui_wm_update(void);
 void          gui_wm_destroy_window(int win_id);
 void          gui_wm_focus_window(int win_id);
 gui_window_t* gui_wm_get_window(int win_id);

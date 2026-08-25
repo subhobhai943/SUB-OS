@@ -10,6 +10,9 @@
 #include <drivers/keyboard.h>
 #include <lib/string.h>
 #include <mm/kmalloc.h>
+#include <kernel/ktime.h>
+
+#define WM_OPEN_ANIM_MS 160
 
 #define BTN_SIZE 14
 #define BTN_GAP  4
@@ -85,7 +88,61 @@ gui_window_t* gui_wm_create_window(const char* title, int x, int y, int w, int h
 
     g_window_order[g_num_windows++] = win->id;
     gui_wm_focus_window(win->id);
+
+    // Kick off the grow-open animation: remember the final geometry and centre,
+    // then start small. gui_wm_update() eases it back to full over ~160 ms.
+    win->target_w = win->width;
+    win->target_h = win->height;
+    win->center_x = win->x + win->width / 2;
+    win->center_y = win->y + win->height / 2;
+    win->anim_open_ns = ktime_ns();
+    win->width  = win->target_w * 6 / 10;
+    win->height = win->target_h * 6 / 10;
+    win->x = win->center_x - win->width / 2;
+    win->y = win->center_y - win->height / 2;
+    if (win->x < 0) win->x = 0;
+    if (win->y < 0) win->y = 0;
     return win;
+}
+
+// Advance open animations. Returns true while any window is still animating.
+bool gui_wm_update(void) {
+    bool animating = false;
+    uint64_t now = ktime_ns();
+
+    for (int i = 0; i < g_num_windows; i++) {
+        gui_window_t* win = gui_wm_get_window(g_window_order[i]);
+        if (!win || win->anim_open_ns == 0) continue;
+
+        uint64_t elapsed_ms = (now - win->anim_open_ns) / 1000000ULL;
+        if (elapsed_ms >= WM_OPEN_ANIM_MS) {
+            // Snap to the final geometry and stop animating.
+            win->width  = win->target_w;
+            win->height = win->target_h;
+            win->x = win->center_x - win->target_w / 2;
+            win->y = win->center_y - win->target_h / 2;
+            win->anim_open_ns = 0;
+        } else {
+            animating = true;
+            int p = (int)(elapsed_ms * 1000 / WM_OPEN_ANIM_MS);   // 0..1000
+            int inv = 1000 - p;
+            int ease = 1000 - (inv * inv / 1000) * inv / 1000;     // cubic ease-out
+            int scale = 600 + 400 * ease / 1000;                   // 600..1000 permille
+            win->width  = win->target_w * scale / 1000;
+            win->height = win->target_h * scale / 1000;
+            win->x = win->center_x - win->width / 2;
+            win->y = win->center_y - win->height / 2;
+        }
+
+        // Keep the animating window on screen.
+        if (win->x < 0) win->x = 0;
+        if (win->y < 0) win->y = 0;
+        if (win->x + win->width  > g_work_w) win->x = g_work_w - win->width;
+        if (win->y + win->height > g_work_h) win->y = g_work_h - win->height;
+        if (win->x < 0) win->x = 0;
+        if (win->y < 0) win->y = 0;
+    }
+    return animating;
 }
 
 static int order_index_of(int win_id) {

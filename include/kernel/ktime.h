@@ -14,4 +14,8 @@ uint64_t    ktime_ms(void);
 const char* ktime_source(void);      // "HPET" or "PIT"
 bool        ktime_is_highres(void);  // true when backed by the HPET
 
+// Busy-wait for the given number of microseconds against the monotonic clock.
+// Precise when HPET-backed; used by the compositor's 60 FPS frame pacer.
+void        ktime_delay_us(uint64_t us);
+
 #endif // _KERNEL_KTIME_H

@@ -86,6 +86,14 @@ static uint64_t g_frames = 0;
 static uint32_t g_fps = 0;           // frames per second, sampled from ktime
 static uint64_t g_fps_last_ms = 0;
 static uint64_t g_fps_last_frames = 0;
+static uint64_t g_last_scene_ms = 0; // last full scene recomposite (for heartbeat)
+static int      g_prev_mx = -1, g_prev_my = -1;
+
+// Target frame budget: 60 FPS == 16666 us. The compositor only repaints the
+// full scene when it is dirty; between times it just moves the cursor overlay,
+// so idle and pointer-only frames comfortably hit the cap.
+#define FRAME_BUDGET_US 16666
+#define SCENE_HEARTBEAT_MS 100  // ~10 Hz refresh for live content (clock, graphs)
 
 /*
  * Cached wallpaper.
@@ -730,6 +738,8 @@ int gui_desktop_run(void) {
     printk(KERN_INFO "GUI: Desktop session started (ESC returns to the kernel TTY)\n");
 
     while (g_desktop_running) {
+        uint64_t frame_start_us = ktime_us();
+
         // --- 1. Sample input -----------------------------------------------
         const mouse_state_t* ms = mouse_get_state();
         int  mx    = ms ? ms->x : gui_gfx_get_width() / 2;
@@ -785,28 +795,59 @@ int gui_desktop_run(void) {
             }
         }
 
-        // --- 4. Composite the scene, back to front --------------------------
+        // --- 4. Decide what needs repainting --------------------------------
+        // Advancing open animations mutates window geometry, so this both drives
+        // the effect and reports whether it is still running.
+        bool wm_animating = gui_wm_update();
+
+        uint64_t now_ms = ktime_ms();
+        bool heartbeat   = (now_ms - g_last_scene_ms) >= SCENE_HEARTBEAT_MS;
+        bool interacting = left || right || key ||
+                           g_start_menu_open || g_context_menu_open ||
+                           gui_dialog_is_open();
+
+        // A full recomposite is needed when anything but the bare cursor moved;
+        // otherwise we keep the retained scene and just slide the cursor overlay.
+        bool scene_dirty = wm_animating || interacting || heartbeat || (g_frames == 0);
+
         if ((g_frames & 0x1F) == 0) sample_cpu_history();
 
-        gui_desktop_render_background();
-        gui_desktop_render_icons();
-        gui_wm_render();
-        gui_desktop_render_taskbar();
-        gui_desktop_render_start_menu();
-        gui_desktop_render_context_menu();
-        gui_dialog_render();
-        gui_cursor_draw();
+        if (scene_dirty) {
+            gui_desktop_render_background();
+            gui_desktop_render_icons();
+            gui_wm_render();
+            gui_desktop_render_taskbar();
+            gui_desktop_render_start_menu();
+            gui_desktop_render_context_menu();
+            gui_dialog_render();
+            g_last_scene_ms = now_ms;
+        } else {
+            // Retained scene: erase the previous cursor from it before redrawing.
+            gui_cursor_restore_under();
+        }
+
+        // The cursor is an overlay drawn on top of the (retained or fresh) scene,
+        // so pointer motion never forces a full recomposite.
+        gui_cursor_composite();
 
         gui_gfx_present();
         g_frames++;
         g_pushed_pixels += gui_gfx_last_present_pixels();
+        g_prev_mx = mx;
+        g_prev_my = my;
+
+        // --- 5. Pace to the 60 FPS budget -----------------------------------
+        uint64_t elapsed_us = ktime_us() - frame_start_us;
+        if (elapsed_us < FRAME_BUDGET_US) {
+            ktime_delay_us(FRAME_BUDGET_US - elapsed_us);
+        }
 
         // Sample the frame rate roughly twice a second from the monotonic clock.
-        uint64_t now_ms = ktime_ms();
-        uint64_t dt = now_ms - g_fps_last_ms;
+        uint64_t fps_now_ms = ktime_ms();
+        uint64_t dt = fps_now_ms - g_fps_last_ms;
         if (dt >= 500) {
             g_fps = (uint32_t)(((g_frames - g_fps_last_frames) * 1000ULL) / dt);
-            g_fps_last_ms = now_ms;
+            g_fps_last_ms = fps_now_ms;
             g_fps_last_frames = g_frames;
         }
 

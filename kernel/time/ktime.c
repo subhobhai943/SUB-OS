@@ -37,3 +37,22 @@ uint64_t ktime_ms(void) { return ktime_ns() / 1000000ULL; }
 
 const char* ktime_source(void) { return g_use_hpet ? "HPET" : "PIT"; }
 bool        ktime_is_highres(void) { return g_use_hpet; }
+
+void ktime_delay_us(uint64_t us) {
+    if (us == 0) return;
+    // With the HPET we can spin precisely; on the PIT the 10 ms tick is far
+    // coarser than a microsecond, so cap the spin so we never wedge the CPU.
+    if (!g_use_hpet) {
+        uint64_t deadline_ms = ktime_ms() + (us + 999) / 1000;
+        uint64_t guard = 0;
+        while (ktime_ms() < deadline_ms && guard++ < 100000000ULL) {
+            /* spin */
+        }
+        return;
+    }
+    uint64_t start = ktime_ns();
+    uint64_t target = start + us * 1000ULL;
+    while (ktime_ns() < target) {
+        /* spin on the HPET counter */
+    }
+}
