@@ -407,56 +407,68 @@ def run_dialog_gui():
                 continue
 
             items = submenu["items"]
-            item_opts = []
+            is_radio = any(i.get("type") == "radio" for i in items)
 
-            for item in items:
-                itype = item.get("type")
-                if itype == "bool":
+            item_opts = []
+            if is_radio:
+                # Single-choice group (architecture, optimization). Use a --menu,
+                # not a --radiolist: in a radiolist the arrow keys only move the
+                # highlight and <Space> is required to move the (*) dot, so a user
+                # who highlights another architecture and presses <Enter> confirms
+                # the ORIGINAL choice -- the selection appears to do nothing. With
+                # --menu, <Enter> selects the highlighted row directly.
+                default_item = None
+                for item in items:
+                    item_opts.extend([item["id"], item["label"]])
+                    group = item.get("group")
+                    cur = cfg.get("CONFIG_ARCH") if group == "arch" else (
+                          cfg.get("CONFIG_OPTIMIZATION") if group == "opt" else None)
+                    if cur is not None and cur == item["val"]:
+                        default_item = item["id"]
+
+                cmd = ["dialog", "--clear", "--backtitle", backtitle,
+                       "--title", submenu["title"], "--help-button"]
+                if default_item:
+                    cmd += ["--default-item", default_item]
+                cmd += ["--menu",
+                        "Highlight a choice with the arrow keys and press <Enter> to select it.",
+                        "20", "78", "10"] + item_opts
+            else:
+                for item in items:
                     status = "ON" if cfg.get(item["id"], False) else "OFF"
                     item_opts.extend([item["id"], item["label"], status])
-                elif itype == "radio":
-                    group = item.get("group")
-                    if group == "arch":
-                        status = "ON" if cfg.get("CONFIG_ARCH") == item["val"] else "OFF"
-                    elif group == "opt":
-                        status = "ON" if cfg.get("CONFIG_OPTIMIZATION") == item["val"] else "OFF"
-                    else:
-                        status = "OFF"
-                    item_opts.extend([item["id"], item["label"], status])
 
-            is_radiolist = any(i.get("type") == "radio" for i in items)
-            dialog_type = "--radiolist" if is_radiolist else "--checklist"
-
-            cmd = [
-                "dialog",
-                "--clear",
-                "--backtitle", backtitle,
-                "--title", submenu["title"],
-                "--help-button",
-                "--help-status",
-                dialog_type,
-                "Use <Space> to toggle features [*], <Enter> to confirm, <Help> for info.",
-                "20", "78", "10"
-            ] + item_opts
+                cmd = ["dialog", "--clear", "--backtitle", backtitle,
+                       "--title", submenu["title"], "--help-button", "--help-status",
+                       "--checklist",
+                       "Use <Space> to toggle features [*], <Enter> to confirm, <Help> for info.",
+                       "20", "78", "10"] + item_opts
 
             res = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
             ret = res.returncode
             out = res.stderr.strip()
 
             if ret == 0:  # OK / Confirm
-                _apply_selection(cfg, items, [t.strip('"') for t in out.split()], is_radiolist)
+                if is_radio:
+                    # --menu returns just the highlighted tag.
+                    _apply_selection(cfg, items, [out.strip('"')], True)
+                else:
+                    _apply_selection(cfg, items, [t.strip('"') for t in out.split()], False)
                 current_menu_id = "main"
 
             elif ret == 1 or ret == 255:  # Cancel or Esc
                 current_menu_id = "main"
 
             elif ret == 2:  # Help button
-                # With --help-status the payload is "HELP <focused-tag> <on-tags...>".
-                # Re-apply the on-tags first so the toggles made before pressing
-                # <Help> survive the round trip, then show the focused item's help.
-                tokens = _help_tokens(out)
-                focus = tokens[0] if tokens else None
-                _apply_selection(cfg, items, tokens[1:], is_radiolist)
+                if is_radio:
+                    # --menu help payload is just "HELP <focused-tag>".
+                    focus = _help_tag(out)
+                else:
+                    # --help-status payload is "HELP <focused-tag> <on-tags...>";
+                    # re-apply the on-tags so toggles made before <Help> survive.
+                    tokens = _help_tokens(out)
+                    focus = tokens[0] if tokens else None
+                    _apply_selection(cfg, items, tokens[1:], False)
                 focused = next((i for i in items if i["id"] == focus), None)
                 if focused:
                     help_title = f"{focused['label']} - Help"
@@ -467,8 +479,10 @@ def run_dialog_gui():
                 subprocess.run(["dialog", "--backtitle", backtitle, "--title", help_title,
                                 "--msgbox", help_text, "16", "72"])
 
-    save_config(cfg)
-    print(f"*** Configuration written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
+    # Saving is handled inside the loop: the <Save> button writes immediately,
+    # and <Exit> asks first and writes only on "Yes". Saving again here would
+    # override an explicit "No", so just report the resulting state.
+    print(f"*** Kernel configuration ready: {CONFIG_FILE} (ARCH={cfg.get('CONFIG_ARCH', 'x86_64')}) ***")
 
 # -----------------------------------------------------------------------------
 # Pure Python Curses GUI Renderer (Pixel-Perfect Linux lxdialog Replica)

@@ -275,19 +275,24 @@ static void subos_modular_core_boot(void) {
     bool emergency_text = init_has_param("nogui") || init_has_param("text") ||
                           init_has_param("emergency") || init_has_param("single");
 
+    // End the splash and return the screen to a text console so the login
+    // prompt is visible before any session (graphical or TTY) begins.
+    boot_logo_splash_end();
+    fbcon_enable(true);
+
+    // Gate the session behind an interactive login. This blocks until a valid
+    // username/password is entered; the default account is SUB / SUB.
+    console_login();
+
     if (!emergency_text) {
-        printk(KERN_INFO "INIT: Booting directly into SUB-OS Graphical Desktop Environment...\n");
-        boot_logo_splash_end();
+        printk(KERN_INFO "INIT: Starting SUB-OS Graphical Desktop Environment...\n");
         gui_start_desktop();
-        printk(KERN_INFO "INIT: GUI session closed. Entering Emergency Kernel TTY Mode.\n");
+        printk(KERN_INFO "INIT: GUI session closed. Entering Kernel TTY Mode.\n");
+        // The desktop owned the framebuffer; return it to the text console.
+        fbcon_enable(true);
     } else {
         printk(KERN_INFO "INIT: Emergency text/kernel TTY mode requested via boot parameters.\n");
-        boot_logo_splash_end();
     }
-
-    // The screen returns to the console before handing over to userland, whether
-    // the GUI session just closed or a text boot was requested.
-    fbcon_enable(true);
 
     // Hand control to userland: /sbin/init is a separate static ELF that runs
     // in ring 3 with its own page tables and talks back only through INT 0x80.

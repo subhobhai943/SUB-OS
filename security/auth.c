@@ -2,6 +2,7 @@
 #include <crypto/crypto.h>
 #include <lib/string.h>
 #include <kernel/printk.h>
+#include <drivers/keyboard.h>
 
 static user_account_t user_table[MAX_USERS];
 static size_t user_count = 0;
@@ -122,4 +123,77 @@ size_t auth_get_user_count(void) {
 const user_account_t* auth_get_user_by_index(size_t index) {
     if (index >= MAX_USERS || !user_table[index].in_use) return NULL;
     return &user_table[index];
+}
+
+/* Read a line from the PS/2 keyboard into buf. When echo is false the typed
+ * characters are masked with '*' (password entry). Blocks until Enter. */
+static void login_read_line(char* buf, size_t max, bool echo) {
+    size_t len = 0;
+    while (true) {
+        uint16_t key = keyboard_get_key();
+        if (key & KEY_SPECIAL_FLAG) {
+            continue; // ignore arrows / function keys at the login prompt
+        }
+        char c = (char)(key & 0xFF);
+
+        if (c == '\n' || c == '\r') {
+            printk("\n");
+            break;
+        }
+        if (c == '\b' || (unsigned char)c == 0x7F || c == 0x08) {
+            if (len > 0) {
+                len--;
+                printk("\b \b"); // erase the last glyph on screen
+            }
+            continue;
+        }
+        if ((unsigned char)c >= 32 && (unsigned char)c <= 126 && len < max - 1) {
+            buf[len++] = c;
+            if (echo) {
+                printk("%c", c);
+            } else {
+                printk("*");
+            }
+        }
+    }
+    buf[len] = '\0';
+}
+
+void console_login(void) {
+    char username[32];
+    char password[64];
+
+    printk("\n" ANSI_BRIGHT_CYAN
+           "=================================================================\n"
+           "   SUB-OS Secure Login -- authenticate to start your session\n"
+           "=================================================================\n"
+           ANSI_RESET);
+    printk(ANSI_YELLOW "   Default credentials: username " ANSI_BRIGHT_GREEN "SUB"
+           ANSI_YELLOW ", password " ANSI_BRIGHT_GREEN "SUB" ANSI_RESET "\n\n");
+
+    while (true) {
+        printk(ANSI_BRIGHT_GREEN "sub-os " ANSI_RESET "login: ");
+        login_read_line(username, sizeof(username), true);
+        if (username[0] == '\0') {
+            continue; // empty username, re-prompt
+        }
+
+        printk("Password: ");
+        login_read_line(password, sizeof(password), false);
+
+        bool ok = auth_verify_password(username, password);
+
+        // Scrub the password from the stack regardless of the outcome.
+        memset(password, 0, sizeof(password));
+
+        if (ok) {
+            auth_set_current_user(username);
+            printk(ANSI_BRIGHT_GREEN
+                   "\nLogin successful. Welcome to SUB-OS, %s!\n\n" ANSI_RESET,
+                   username);
+            return;
+        }
+
+        printk(ANSI_BRIGHT_RED "\nLogin incorrect. Please try again.\n\n" ANSI_RESET);
+    }
 }
