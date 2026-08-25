@@ -32,6 +32,9 @@
 #include <kernel/nt/ob.h>
 #include <kernel/nt/reg.h>
 #include <kernel/nt/io.h>
+#include <drivers/hpet.h>
+#include <drivers/nvram.h>
+#include <drivers/lpt.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
 #include <userland/snake.h>
@@ -712,6 +715,39 @@ static int applet_iodev(int argc, char** argv) {
             io_free_irp(irp);
         }
     }
+    return 0;
+}
+
+static int applet_hpet(int argc, char** argv) {
+    (void)argc; (void)argv;
+    if (!hpet_available()) {
+        printk("HPET: not available on this platform\n");
+        return 1;
+    }
+    printk(ANSI_BRIGHT_CYAN "High Precision Event Timer:\n" ANSI_RESET);
+    printk("  Frequency  : %llu Hz\n", (unsigned long long)hpet_get_frequency_hz());
+    printk("  Comparators: %u\n", hpet_num_timers());
+    printk("  Main count : %llu\n", (unsigned long long)hpet_read_counter());
+    printk("  Uptime     : %llu ns since HPET enable\n", (unsigned long long)hpet_get_ns());
+    return 0;
+}
+
+static int applet_nvram(int argc, char** argv) {
+    (void)argc; (void)argv;
+    nvram_dump();
+    printk("  checksum(0x0E..0x7F) = 0x%02X\n", nvram_checksum());
+    return 0;
+}
+
+static int applet_lpt(int argc, char** argv) {
+    if (!lpt_present()) {
+        printk("LPT: no parallel port present\n");
+        return 1;
+    }
+    const char* text = (argc >= 2) ? argv[1] : "SUB-OS\n";
+    int n = lpt_write(text, strlen(text));
+    printk("LPT1: status=0x%02X, wrote %d byte(s) to the parallel port\n",
+           lpt_status(), n);
     return 0;
 }
 
@@ -2428,6 +2464,9 @@ static const lazybox_applet_t applets[] = {
     {"ntobj",         applet_ntobj,         "ntobj",                     "NT Object Manager stats/demo","Kernel"},
     {"reg",           applet_reg,           "reg query|add|set|stats",   "NT configuration registry",  "Kernel"},
     {"iodev",         applet_iodev,         "iodev",                     "NT I/O Manager devices & IRP","Kernel"},
+    {"hpet",          applet_hpet,          "hpet",                      "High Precision Event Timer",  "Hardware"},
+    {"nvram",         applet_nvram,         "nvram",                     "Dump CMOS NVRAM bytes",       "Hardware"},
+    {"lpt",           applet_lpt,           "lpt [text]",                "Send text to LPT1 parallel",  "Hardware"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},

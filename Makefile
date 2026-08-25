@@ -277,7 +277,8 @@ endif
 # Common Input/Display/Power/GPU/Networking Drivers
 CONFIG_SRCS-y += drivers/char/tty.c drivers/char/keyboard.c drivers/char/serial.c drivers/char/vga.c \
                  drivers/input/mouse.c drivers/power/acpi.c drivers/power/cpufreq.c drivers/rtc/rtc.c drivers/sound/speaker.c \
-                 drivers/net/e1000e.c drivers/virtio/virtio_gpu.c drivers/virtio/virtio_input.c
+                 drivers/net/e1000e.c drivers/virtio/virtio_gpu.c drivers/virtio/virtio_input.c \
+                 drivers/timer/hpet.c drivers/char/lpt.c drivers/char/nvram.c
 
 # Userland & GUI Desktop Subsystem
 ifeq ($(CONFIG_USERLAND_LAZYBOX), y)

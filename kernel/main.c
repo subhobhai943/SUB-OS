@@ -73,6 +73,9 @@
 #include <drivers/e1000e.h>
 #include <drivers/virtio_gpu.h>
 #include <drivers/cpufreq.h>
+#include <drivers/hpet.h>
+#include <drivers/nvram.h>
+#include <drivers/lpt.h>
 #include <drivers/virtio_input.h>
 #include <gui/gui.h>
 #include <init/init.h>
@@ -128,6 +131,9 @@ static void subos_modular_core_boot(void) {
     xhci_init();
     hwmon_init();
     cpufreq_init();
+    hpet_init();
+    nvram_init();
+    lpt_init();
 #endif
     canvas_init();
     pty_init();
