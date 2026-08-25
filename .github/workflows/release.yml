@@ -15,9 +15,26 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build & Publish Release
+  # ---------------------------------------------------------------------------
+  # Build every supported architecture in parallel. x86_64 produces a bootable
+  # disk image; aarch64 and armv8i produce a bare-metal kernel ELF for QEMU.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            deps: build-essential nasm rustc
+            make_args: ARCH=x86_64 CROSS_COMPILE=
+          - arch: aarch64
+            deps: build-essential gcc-aarch64-linux-gnu
+            make_args: ARCH=aarch64
+          - arch: armv8i
+            deps: build-essential gcc-arm-linux-gnueabihf
+            make_args: ARCH=armv8i
 
     steps:
       - name: Checkout Code
@@ -28,33 +45,61 @@ jobs:
       - name: Install Toolchain Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu make qemu-system-x86
+          sudo apt-get install -y ${{ matrix.deps }}
 
-      - name: Build SUB-OS Kernel & Bootable Disk Image
+      - name: Build SUB-OS (${{ matrix.arch }})
         run: |
           make clean
-          make CROSS_COMPILE=x86_64-linux-gnu-
+          make ${{ matrix.make_args }}
 
-      - name: Verify Image and Prepare Release Artifacts
+      - name: Prepare Artifacts
+        run: |
+          VER="${{ github.event.inputs.tag_name || github.ref_name }}"
+          mkdir -p dist
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            cp SUB-OS.img       dist/SUB-OS-${VER}-x86_64.img
+            cp build/kernel.elf dist/SUB-OS-${VER}-x86_64-kernel.elf
+            cp build/kernel.bin dist/SUB-OS-${VER}-x86_64-kernel.bin
+          else
+            cp build/kernel.elf dist/SUB-OS-${VER}-${{ matrix.arch }}-kernel.elf
+          fi
+          ls -lh dist
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sub-os-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Collect every architecture's artifacts, checksum them, and publish one
+  # GitHub prerelease carrying all of them.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble Release Assets & Checksums
         run: |
           mkdir -p release-assets
-          cp SUB-OS.img release-assets/
-          cp build/kernel.elf release-assets/
-          cp build/kernel.bin release-assets/
+          find artifacts -type f -exec cp {} release-assets/ \;
           cd release-assets
-          sha256sum SUB-OS.img kernel.elf kernel.bin > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS.txt
+          echo "=== Release assets ==="
+          ls -lh
+          echo "=== SHA256SUMS ==="
           cat SHA256SUMS.txt
-          cd ..
 
       - name: Determine Release Tag
         id: vars
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.tag_name }}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+        run: echo "tag=${{ github.event.inputs.tag_name || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -63,52 +108,62 @@ jobs:
           name: "SUB-OS ${{ steps.vars.outputs.tag }}"
           draft: false
           prerelease: true
-          files: |
-            release-assets/SUB-OS.img
-            release-assets/kernel.elf
-            release-assets/kernel.bin
-            release-assets/SHA256SUMS.txt
+          files: release-assets/*
           body: |
             # 🚀 SUB-OS ${{ steps.vars.outputs.tag }}
-            
-            Welcome to the first official alpha release of **SUB-OS**!
-            
-            **SUB-OS** is a 64-bit modular monolithic operating system built from scratch for the `x86_64` architecture, featuring modern Unix-like kernel architecture and the **LazyBox** multi-call userland binary suite.
-            
+
+            The first official alpha release of **SUB-OS** — a multi-architecture, modular monolithic operating system kernel written from scratch in C, C++17, Assembly and freestanding bare-metal Rust.
+
+            This release ships prebuilt kernels for every supported architecture, now including the new **SUB-OS Graphical Desktop Environment**.
+
             ---
-            
-            ### 🌟 Included Subsystems & Features
-            
-            - 🖥️ **64-Bit Bare-Metal Core**: Custom two-stage MBR bootloader with BIOS E820 memory mapping and 4GB 4-level PML4 identity paging.
-            - ⚡ **Preemptive Scheduler**: 8254 PIT (100 Hz, 10ms resolution) driving Round-Robin task multitasking with atomic spinlocks & semaphores.
-            - 🧠 **Memory Management**: 64-bit Physical Page Frame Allocator (4 KB bitmap) & Dynamic Kernel Heap (4 MB pool) with boundary tag coalescing.
-            - 📁 **Virtual File System (VFS)**: POSIX-like VFS layer (`vfs_namei`), in-memory root RAMFS, synthetic `/dev` devfs, and `/proc` metrics procfs.
-            - 🖧 **Hardware Drivers**:
-              - **Char**: VGA Text mode, Virtual Terminals TTY1-4 with ANSI escape support, 16550 UART Serial (COM1), PS/2 Keyboard with scancode translation.
-              - **Block**: ATA / IDE Hard Disk PIO driver (28-bit LBA).
-              - **PCI**: Bus enumeration and BAR address space mapping.
-              - **Network**: Intel 82540EM Gigabit Ethernet NIC with circular DMA RX/TX rings.
-              - **Audio**: PC Speaker tone generator via PIT Channel 2.
-            - 🌐 **Network Protocol Stack**: Ethernet L2, dynamic ARP table cache, IPv4 routing & checksums, and ICMP Echo client/server (`ping`).
-            - 🔒 **Kernel Cryptography**: FIPS 180-4 SHA-256, RFC 1321 MD5, IEEE 802.3 CRC32, and Xorshift128+ CSPRNG.
-            - 🧰 **LazyBox Multi-Call Userland**: 42 applets (`ls`, `cat`, `touch`, `mkdir`, `wc`, `ping`, `ifconfig`, `arp`, `sha256sum`, `md5sum`, `crc32`, `hdparm`, `uname`, `free`, `uptime`, `dmesg`, `sleep`, `clear`, `neofetch`, `echo`, `calc`) with command history and inline cursor editing.
-            
+
+            ### 🖥️ Supported Architectures
+            | Arch | Artifact | Boot |
+            |------|----------|------|
+            | `x86_64` | Bootable raw disk image + kernel ELF/BIN | Two-stage MBR bootloader |
+            | `aarch64` | Bare-metal kernel ELF | QEMU `-M virt` (Cortex-A57) |
+            | `armv8i` (AArch32) | Bare-metal kernel ELF | QEMU `-M virt` (Cortex-A15) |
+
             ---
-            
-            ### 🚀 Quick Start (Running with QEMU)
-            
-            Download `SUB-OS.img` attached below and launch using QEMU:
-            
+
+            ### 🌟 Highlights
+            - 🖥️ **SUB-OS Graphical Desktop Environment**: SUB-WM 800x600 TrueColor double-buffered compositor, the SUB-WT immediate-mode widget toolkit, an icon set, modal dialogs, a real terminal emulator, and desktop apps (File Explorer, System Monitor, Task Manager, Kernel Log, KTest Runner, Text Editor, Calculator, Paint, Clock, Settings). x86_64 boots straight into it; pass `nogui`/`text` for the kernel TTY.
+            - 🎨 **Boot Logo & Splash**: ASCII mark from the first moments of boot, then a graphical splash with an animated progress bar once the framebuffer is up.
+            - 🖵 **Framebuffer Console**: VT100-subset console rendered into the framebuffer so the TTY and the **nano** editor work after graphics mode.
+            - 🧶 **Weave Scheduler**: real per-architecture context switching with behavioural lane weaving and boot-time self-tests.
+            - 🧵 **Kernel Concurrency Core**: wait queues, futexes, tiny RCU, plus rbtree/kfifo/hashtable data structures and a block page cache.
+            - 🧪 **In-Kernel Test Harness**: KUnit-style suites (rbtree, kfifo, hashtable, RCU, futex, wait queues, page cache, libcore) runnable from the shell or the desktop KTest Runner.
+            - 🧰 **LazyBox Userland**: multi-call applet suite plus a separate ring-3 `/sbin/init` ELF.
+
+            ---
+
+            ### 🚀 Quick Start
+            **x86_64 (bootable image):**
             ```bash
-            qemu-system-x86_64 -drive format=raw,file=SUB-OS.img -nic model=e1000 -serial stdio
+            qemu-system-x86_64 -drive format=raw,file=SUB-OS-${{ steps.vars.outputs.tag }}-x86_64.img \
+              -device VGA,vgamem_mb=32 -serial stdio
             ```
-            
+            **aarch64:**
+            ```bash
+            qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -nographic \
+              -kernel SUB-OS-${{ steps.vars.outputs.tag }}-aarch64-kernel.elf
+            ```
+            **armv8i (AArch32):**
+            ```bash
+            qemu-system-arm -M virt -cpu cortex-a15 -m 128M -nographic \
+              -kernel SUB-OS-${{ steps.vars.outputs.tag }}-armv8i-kernel.elf
+            ```
+
             ---
-            
+
             ### 📦 Release Assets
-            - `SUB-OS.img`: 1.5 MB bootable raw floppy/disk image.
-            - `kernel.elf`: 64-bit Kernel ELF binary with symbol tables for debugging.
-            - `kernel.bin`: Flat kernel binary payload loaded by stage 2 bootloader.
-            - `SHA256SUMS.txt`: Cryptographic SHA-256 validation checksums.
+            - `SUB-OS-<ver>-x86_64.img` — bootable raw disk image (boots to the GUI desktop).
+            - `SUB-OS-<ver>-x86_64-kernel.elf` / `.bin` — x86_64 kernel with symbols / flat payload.
+            - `SUB-OS-<ver>-aarch64-kernel.elf` — AArch64 bare-metal kernel.
+            - `SUB-OS-<ver>-armv8i-kernel.elf` — AArch32 bare-metal kernel.
+            - `SHA256SUMS.txt` — SHA-256 checksums for every asset.
+
+            > ⚠️ Alpha software — expect rough edges. Run under QEMU; do not boot on hardware you care about.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
