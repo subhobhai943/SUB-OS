@@ -24,6 +24,19 @@ static inline void arch_disable_interrupts(void) {
     __asm__ volatile("cli");
 }
 
+/* Save the current interrupt-enable state and disable interrupts; restore puts
+ * it back exactly. Used to make a critical section atomic against IRQ handlers
+ * (e.g. the preemptive scheduler) without unconditionally re-enabling. */
+static inline unsigned long arch_irq_save(void) {
+    unsigned long flags;
+    __asm__ volatile("pushfq; pop %0; cli" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static inline void arch_irq_restore(unsigned long flags) {
+    __asm__ volatile("push %0; popfq" :: "r"(flags) : "memory", "cc");
+}
+
 static inline void arch_halt(void) {
     __asm__ volatile("hlt");
 }
@@ -57,6 +70,16 @@ static inline void arch_enable_interrupts(void) {
 
 static inline void arch_disable_interrupts(void) {
     __asm__ volatile("msr daifset, #2" ::: "memory");
+}
+
+static inline unsigned long arch_irq_save(void) {
+    unsigned long flags;
+    __asm__ volatile("mrs %0, daif; msr daifset, #2" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static inline void arch_irq_restore(unsigned long flags) {
+    __asm__ volatile("msr daif, %0" :: "r"(flags) : "memory");
 }
 
 static inline void arch_halt(void) {
@@ -99,6 +122,16 @@ static inline void arch_enable_interrupts(void) {
 
 static inline void arch_disable_interrupts(void) {
     __asm__ volatile("cpsid i" ::: "memory");
+}
+
+static inline unsigned long arch_irq_save(void) {
+    unsigned long flags;
+    __asm__ volatile("mrs %0, cpsr; cpsid i" : "=r"(flags) :: "memory");
+    return flags;
+}
+
+static inline void arch_irq_restore(unsigned long flags) {
+    __asm__ volatile("msr cpsr_c, %0" :: "r"(flags) : "memory", "cc");
 }
 
 static inline void arch_halt(void) {

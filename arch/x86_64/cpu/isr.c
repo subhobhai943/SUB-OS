@@ -4,6 +4,7 @@
 #include <kernel/printk.h>
 #include <kernel/panic.h>
 #include <kernel/exec.h>
+#include <kernel/sched.h>
 #include <lib/string.h>
 
 extern void* isr_stub_table[48];
@@ -88,6 +89,11 @@ void isr_handler_common(registers_t* regs) {
     // Acknowledge Hardware PIC Interrupts (IRQs 32-47)
     if (regs->int_no >= 32 && regs->int_no < 48) {
         pic_send_eoi((uint8_t)(regs->int_no - 32));
+
+        /* Preemption point. The EOI is already out, so the PIC will keep
+         * delivering to whichever thread we switch into. Switching here rather
+         * than inside the handler keeps the tick path re-entrancy-safe. */
+        sched_preempt_on_return();
     }
 }
 

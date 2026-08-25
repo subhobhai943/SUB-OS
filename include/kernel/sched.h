@@ -43,8 +43,18 @@ void sched_leave(void);
  * early boot can run to completion deterministically. */
 void sched_set_preempt(bool armed);
 
-/* Diagnostics + the boot-time context-switch self-test. */
+/* Preemption-disable count: code holding a plain (non-IRQ-safe) spinlock raises
+ * this so a preemptive switch cannot run while that lock is held. Nesting OK. */
+void sched_preempt_disable(void);
+void sched_preempt_enable(void);
+
+/* Called from the arch IRQ dispatcher after the interrupt is acknowledged: if
+ * the timer tick asked for a reschedule and it is safe, switch away now. */
+void sched_preempt_on_return(void);
+
+/* Diagnostics + the boot-time self-tests (cooperative, then preemptive). */
 void sched_dump(void);
 void weave_selftest(void);
+void weave_preempt_selftest(void);
 
 #endif // _KERNEL_SCHED_H

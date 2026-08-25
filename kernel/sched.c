@@ -31,6 +31,37 @@ static spinlock_t weave_lock = SPINLOCK_INIT;
 static bool     weave_preempt = false;   /* timer-driven preemption armed? */
 static uint32_t weave_nready = 0;        /* runnable tasks parked in lanes  */
 static uint64_t weave_switches = 0;      /* lifetime context switches       */
+static uint64_t weave_preemptions = 0;   /* switches forced by the timer    */
+
+/*
+ * Deferred-preemption state.
+ *
+ * The timer ISR must not switch mid-handler: it would strand the PIC EOI and
+ * could fire while a thread holds a non-IRQ-safe lock. Instead sched_tick()
+ * only raises weave_need_resched, and the actual switch happens at IRQ return
+ * (sched_preempt_on_return), after the EOI, on the interrupted thread's own
+ * kernel stack.
+ *
+ * weave_preempt_depth is a preemption-disable count: code that holds a plain
+ * (non-IRQ-safe) spinlock raises it so a preemptive switch cannot run while
+ * that lock is held. printk uses this; see kernel/printk.c.
+ */
+static volatile uint32_t weave_need_resched = 0;
+static volatile int32_t  weave_preempt_depth = 0;
+
+/* weave_lock, held with interrupts masked so the timer ISR can never fire
+ * while the run lanes are being mutated -- that is what makes a plain spinlock
+ * safe to share between thread context and the tick. */
+static inline unsigned long weave_lock_irq(void) {
+    unsigned long flags = arch_irq_save();
+    spin_lock(&weave_lock);
+    return flags;
+}
+
+static inline void weave_unlock_irq(unsigned long flags) {
+    spin_unlock(&weave_lock);
+    arch_irq_restore(flags);
+}
 
 /* ---- lane primitives (call with weave_lock held) ------------------------ */
 
@@ -86,13 +117,13 @@ void sched_init(void) {
 
 void sched_add_task(task_t* task) {
     if (!task) return;
-    spin_lock(&weave_lock);
+    unsigned long flags = weave_lock_irq();
     task->weave_lane = 0;
     task->weave_credit = weave_quantum[0];
     task->weave_on = 1;
     task->state = TASK_STATE_READY;
     weave_enqueue(task);
-    spin_unlock(&weave_lock);
+    weave_unlock_irq(flags);
 }
 
 /* A node is currently threaded into a lane iff its links are non-NULL and do
@@ -104,13 +135,13 @@ static bool weave_linked(task_t* t) {
 
 void sched_remove_task(task_t* task) {
     if (!task) return;
-    spin_lock(&weave_lock);
+    unsigned long flags = weave_lock_irq();
     if (weave_linked(task)) {
         list_del(&task->list);
         if (weave_nready) weave_nready--;
     }
     task->weave_on = 0;
-    spin_unlock(&weave_lock);
+    weave_unlock_irq(flags);
 }
 
 void sched_join(void) {
@@ -125,6 +156,17 @@ void sched_set_preempt(bool armed) {
     weave_preempt = armed;
 }
 
+/* Raise/lower the preemption-disable count. While non-zero, the tick will not
+ * force a switch -- callers holding a plain spinlock use this so a preemptive
+ * switch cannot run with that lock held. Nesting is allowed. */
+void sched_preempt_disable(void) {
+    __atomic_add_fetch(&weave_preempt_depth, 1, __ATOMIC_SEQ_CST);
+}
+
+void sched_preempt_enable(void) {
+    __atomic_sub_fetch(&weave_preempt_depth, 1, __ATOMIC_SEQ_CST);
+}
+
 /*
  * Common rotation core. `voluntary` distinguishes a cooperative yield (the
  * caller is rewarded, woven up a lane) from an involuntary/preemptive switch
@@ -132,12 +174,18 @@ void sched_set_preempt(bool armed) {
  * is still a participant, and performs the switch.
  */
 static void weave_rotate(bool voluntary) {
+    /* Interrupts stay masked from here through the register swap: the pick, the
+     * requeue and the switch must be one indivisible step against the tick.
+     * The saved flags live on this thread's stack, so each thread restores its
+     * own interrupt state when it is eventually switched back in. */
+    unsigned long flags = arch_irq_save();
     spin_lock(&weave_lock);
 
     task_t* cur = weave_current;
     task_t* next = weave_pick();
     if (!next) {
         spin_unlock(&weave_lock);
+        arch_irq_restore(flags);
         return;                       /* nobody else runnable: keep going */
     }
     list_del(&next->list);
@@ -159,6 +207,7 @@ static void weave_rotate(bool voluntary) {
     spin_unlock(&weave_lock);
 
     weave_switch_to(next);
+    arch_irq_restore(flags);
 }
 
 void sched_yield(void) {
@@ -175,13 +224,51 @@ void sched_tick(void) {
         return;                       /* idle thread isn't charged */
     if (cur->weave_credit > 0)
         cur->weave_credit--;
-    if (cur->weave_credit == 0 && weave_preempt)
-        sched_schedule();             /* quantum spent -> preempt */
+    /*
+     * Do NOT switch here: this runs inside the timer ISR, before the PIC EOI,
+     * and possibly while a plain lock is held. Just record that the quantum is
+     * spent; sched_preempt_on_return() performs the switch as the IRQ returns.
+     */
+    if (cur->weave_credit == 0 && weave_preempt &&
+        __atomic_load_n(&weave_preempt_depth, __ATOMIC_SEQ_CST) == 0) {
+        weave_need_resched = 1;
+    }
+}
+
+/*
+ * Preemption tail, called from the IRQ dispatcher after the EOI. If the tick
+ * asked for a reschedule and it is safe (preemption armed, not disabled, not
+ * already reentered), switch away from the interrupted thread. We are on that
+ * thread's kernel stack with its full trap frame below us, so when it is later
+ * switched back in it resumes here and returns through the normal IRQ epilogue.
+ */
+void sched_preempt_on_return(void) {
+    if (!weave_preempt || !weave_need_resched)
+        return;
+    if (__atomic_load_n(&weave_preempt_depth, __ATOMIC_SEQ_CST) != 0)
+        return;
+    task_t* cur = weave_current;
+    if (!cur || cur->pid == 0)
+        return;                       /* never preempt the idle/boot thread */
+
+    /*
+     * Clear the request, then switch. sched_schedule() runs with interrupts
+     * masked and does not return to us until this same thread is scheduled
+     * back in -- at which point we count the preemption and unwind through the
+     * IRQ epilogue. No re-entrancy guard is needed: the masked switch means no
+     * nested timer can land on this stack before the swap completes.
+     */
+    weave_need_resched = 0;
+    uint64_t before = weave_switches;
+    sched_schedule();                 /* involuntary: caller woven down */
+    if (weave_switches != before)
+        weave_preemptions++;          /* a switch really happened */
 }
 
 /* Retire the running thread: switch to the next runnable one and never come
  * back. If the run rotation is empty we simply return so the caller can halt. */
 void sched_exit_current(void) {
+    unsigned long flags = arch_irq_save();
     spin_lock(&weave_lock);
     task_t* next = weave_pick();
     if (next) {
@@ -190,8 +277,10 @@ void sched_exit_current(void) {
     }
     spin_unlock(&weave_lock);
 
-    if (!next)
+    if (!next) {
+        arch_irq_restore(flags);
         return;
+    }
 
     void* graveyard;                  /* dead context's SP goes nowhere */
     next->state = TASK_STATE_RUNNING;
@@ -207,7 +296,7 @@ void sched_exit_current(void) {
 /* ---- diagnostics -------------------------------------------------------- */
 
 void sched_dump(void) {
-    spin_lock(&weave_lock);
+    unsigned long flags = weave_lock_irq();
     printk(ANSI_BRIGHT_CYAN "=== Weave Scheduler ===\n" ANSI_RESET);
     printk("  running: %s (pid %d, lane %u)  switches: %u  ready: %u\n",
            weave_current ? weave_current->name : "?",
@@ -225,7 +314,7 @@ void sched_dump(void) {
         if (!n) printk(" (empty)");
         printk("\n");
     }
-    spin_unlock(&weave_lock);
+    weave_unlock_irq(flags);
 }
 
 /* ---- boot-time context-switch self-test --------------------------------- */
@@ -266,4 +355,107 @@ void weave_selftest(void) {
     printk(ANSI_BRIGHT_GREEN
            "WEAVE: self-test OK -- %u real context switches, 3/3 workers exited\n"
            ANSI_RESET, (unsigned)(weave_switches - before));
+}
+
+/* ---- boot-time PREEMPTION self-test ------------------------------------- */
+/*
+ * Proves timer-driven preemption: two worker threads that NEVER yield are made
+ * runnable, preemption is armed, and the boot thread watches the tick force
+ * context switches between them. Because the workers never cooperate, every
+ * switch counted here is involuntary. The workers only touch their own
+ * counters -- no printk, no locks -- so a preemptive switch mid-loop is always
+ * safe. Each also self-caps its iteration count, so even if preemption failed
+ * to fire the boot could not hang.
+ */
+static volatile uint8_t  weave_pt_stop = 0;
+static volatile uint64_t weave_pt_work[2];
+static volatile uint32_t weave_pt_lane[2];
+static volatile uint8_t  weave_pt_live = 0;
+
+static void weave_burn(void* arg) {
+    long id = (long)(uintptr_t)arg;
+    /* Preemptible only with interrupts enabled; a freshly forged frame starts
+     * with them masked, so opt in explicitly. */
+    arch_enable_interrupts();
+    __atomic_add_fetch(&weave_pt_live, 1, __ATOMIC_SEQ_CST);
+
+    /* Tight non-yielding loop. It runs until the observer sets weave_pt_stop;
+     * the huge self-cap is only a safety net so a failure to preempt could not
+     * hang the boot instead of just ending the test. */
+    for (uint64_t i = 0; i < 60000000ULL && !weave_pt_stop; i++) {
+        weave_pt_work[id] = i;
+        weave_pt_lane[id] = task_current()->weave_lane;
+    }
+    __atomic_sub_fetch(&weave_pt_live, 1, __ATOMIC_SEQ_CST);
+    /* fall off -> trampoline -> task_exit */
+}
+
+void weave_preempt_selftest(void) {
+#if defined(__x86_64__)
+    printk(ANSI_BRIGHT_CYAN
+           "WEAVE: preemptive-scheduling self-test\n" ANSI_RESET);
+
+    weave_pt_stop = 0;
+    weave_pt_work[0] = weave_pt_work[1] = 0;
+    weave_pt_lane[0] = weave_pt_lane[1] = 0;
+    weave_pt_live = 0;
+
+    uint64_t preempt_before = weave_preemptions;
+
+    task_create("burn-0", weave_burn, (void*)(uintptr_t)0, 0);
+    task_create("burn-1", weave_burn, (void*)(uintptr_t)1, 0);
+
+    /* Arm timer-driven preemption and join the rotation so the boot thread can
+     * be scheduled back in to observe progress. */
+    sched_set_preempt(true);
+    sched_join();
+
+    /*
+     * Observe until the timer has forced enough switches to be convincing, or a
+     * generous tick ceiling elapses. weave_preemptions counts ONLY involuntary
+     * (timer-forced) switches, so it is unaffected by the boot thread's own
+     * cooperative yields here. The tight tick ceiling bounds the test either
+     * way, so it can never hang the boot.
+     */
+    uint64_t start_tick = arch_get_ticks();
+    uint64_t spins = 0;
+    while (weave_preemptions - preempt_before < 20 &&
+           arch_get_ticks() - start_tick < 500 &&
+           spins < 20000000ULL) {
+        sched_yield();
+        spins++;
+    }
+    uint64_t end_tick = arch_get_ticks();
+
+    uint64_t forced = weave_preemptions - preempt_before;
+    uint32_t l0 = weave_pt_lane[0], l1 = weave_pt_lane[1];
+    printk("  observer: %u forced switches, ticks %u->%u, %u boot yields\n",
+           (unsigned)forced, (unsigned)start_tick, (unsigned)end_tick,
+           (unsigned)spins);
+
+    /* Stop the workers and drain them out of the rotation. */
+    weave_pt_stop = 1;
+    while (__atomic_load_n(&weave_pt_live, __ATOMIC_SEQ_CST) > 0)
+        sched_yield();
+    sched_leave();
+
+    printk("  burn-0 ran %u iters (last lane %u), burn-1 ran %u iters (last lane %u)\n",
+           (unsigned)weave_pt_work[0], (unsigned)l0,
+           (unsigned)weave_pt_work[1], (unsigned)l1);
+
+    if (forced > 0 && weave_pt_work[0] > 0 && weave_pt_work[1] > 0) {
+        printk(ANSI_BRIGHT_GREEN
+               "WEAVE: preemption OK -- the timer forced %u involuntary switches; "
+               "both non-yielding workers made progress and were woven down to "
+               "the CPU-bound lanes\n" ANSI_RESET, (unsigned)forced);
+    } else {
+        printk(ANSI_YELLOW
+               "WEAVE: preemption self-test inconclusive (%u forced switches)\n"
+               ANSI_RESET, (unsigned)forced);
+    }
+
+    /* Leave preemption armed: from here on CPU-bound kernel threads are time-
+     * sliced. The interactive shell runs on the idle/boot thread (pid 0), which
+     * sched_tick never charges, so it keeps the CPU when nothing else is ready. */
+#endif
 }

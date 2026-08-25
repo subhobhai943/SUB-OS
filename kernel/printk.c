@@ -1,4 +1,5 @@
 #include <kernel/printk.h>
+#include <kernel/sched.h>
 #include <drivers/tty.h>
 #include <drivers/fbcon.h>
 #include <drivers/serial.h>
@@ -84,6 +85,7 @@ int vprintk(const char* fmt, va_list args) {
     int len = vsnprintf(buffer, sizeof(buffer), fmt, args);
     if (len <= 0) return 0;
 
+    sched_preempt_disable();
     spin_lock(&printk_lock);
 
     // Skip loglevel prefix if present (e.g. "\0016")
@@ -124,6 +126,7 @@ int vprintk(const char* fmt, va_list args) {
     dmesg_append(display_ptr, (size_t)len);
 
     spin_unlock(&printk_lock);
+    sched_preempt_enable();
     return len;
 }
 
@@ -144,6 +147,7 @@ int kprintf(const char* fmt, ...) {
 }
 
 void dmesg_dump(void) {
+    sched_preempt_disable();
     spin_lock(&printk_lock);
     if (dmesg_total < DMESG_BUFFER_SIZE) {
         tty_write(dmesg_buffer, dmesg_total);
@@ -153,6 +157,7 @@ void dmesg_dump(void) {
         tty_write(dmesg_buffer, dmesg_head);
     }
     spin_unlock(&printk_lock);
+    sched_preempt_enable();
 }
 
 const char* dmesg_get_buffer(size_t* size_out) {

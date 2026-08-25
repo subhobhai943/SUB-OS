@@ -261,6 +261,13 @@ static void subos_modular_core_boot(void) {
     arch_enable_interrupts();
     printk(ANSI_BRIGHT_GREEN "ACTIVE\n" ANSI_RESET);
 
+#if defined(__x86_64__)
+    /* With interrupts live, prove timer-driven preemption: two non-yielding
+     * threads are forced to share the CPU by the tick. Preemption is left armed
+     * afterwards, so CPU-bound kernel threads are time-sliced from here on. */
+    weave_preempt_selftest();
+#endif
+
     // Return the screen to the console before handing over to the shell.
     boot_logo_splash_end();
     fbcon_enable(true);
