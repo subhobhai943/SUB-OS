@@ -42,6 +42,18 @@ void gui_gfx_draw_string_shadow(int x, int y, const char* str, uint32_t fg, uint
 void gui_gfx_draw_string_16_shadow(int x, int y, const char* str, uint32_t fg, uint32_t shadow);
 void gui_gfx_draw_shadow(int x, int y, int w, int h, int blur);
 void gui_gfx_blit(int dx, int dy, int w, int h, const uint32_t* src_buf);
+
+// Push the composited frame to the display. Only the pixels that differ from
+// the previous frame are written, so an idle desktop costs almost no
+// framebuffer traffic.
 void gui_gfx_present(void);
+
+// Force the next present to push the whole screen. Needed whenever something
+// outside the compositor has drawn over the framebuffer, such as the kernel
+// console before the desktop takes the display back.
+void gui_gfx_invalidate(void);
+
+// Pixels written to the framebuffer by the last present. Diagnostic only.
+uint64_t gui_gfx_last_present_pixels(void);
 
 #endif // _GUI_GFX_H

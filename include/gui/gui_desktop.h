@@ -11,6 +11,10 @@
 void gui_desktop_init(void);
 
 void gui_desktop_render_background(void);
+
+// Drop the cached wallpaper so the next background render repaints it. Needed
+// when the resolution changes or the framebuffer is handed to another owner.
+void gui_desktop_invalidate_background(void);
 void gui_desktop_render_icons(void);
 void gui_desktop_render_taskbar(void);
 void gui_desktop_render_start_menu(void);

@@ -6,18 +6,56 @@
 
 static uint32_t* g_frontbuffer = NULL;
 static uint32_t* g_backbuffer = NULL;
+/*
+ * Mirror of what the framebuffer currently holds.
+ *
+ * The front buffer lives in device memory, where a write costs far more than
+ * the same write to RAM and a read costs more still. Keeping a RAM copy of the
+ * last presented frame lets gui_gfx_present() work out which pixels actually
+ * changed without ever reading the framebuffer back, and push only those.
+ */
+static uint32_t* g_shadow = NULL;
+static bool g_shadow_valid = false;
 static int g_width = 800;
 static int g_height = 600;
+static uint64_t g_present_pixels = 0;
 
 
 void gui_gfx_init(uint32_t* fb, int width, int height) {
-    g_frontbuffer = fb;
-    g_width = (width > 0) ? width : 800;
-    g_height = (height > 0) ? height : 600;
+    int new_w = (width > 0) ? width : 800;
+    int new_h = (height > 0) ? height : 600;
 
-    if (!g_backbuffer) {
-        g_backbuffer = (uint32_t*)kzalloc(g_width * g_height * sizeof(uint32_t));
+    /* A resolution change invalidates both RAM buffers. */
+    if (g_backbuffer && (new_w != g_width || new_h != g_height)) {
+        kfree(g_backbuffer);
+        g_backbuffer = NULL;
+        if (g_shadow) {
+            kfree(g_shadow);
+            g_shadow = NULL;
+        }
     }
+
+    g_frontbuffer = fb;
+    g_width = new_w;
+    g_height = new_h;
+
+    size_t pixels = (size_t)g_width * (size_t)g_height;
+    if (!g_backbuffer) {
+        g_backbuffer = (uint32_t*)kzalloc(pixels * sizeof(uint32_t));
+    }
+    if (!g_shadow) {
+        /* Optional: without it present() just falls back to a full copy. */
+        g_shadow = (uint32_t*)kzalloc(pixels * sizeof(uint32_t));
+    }
+    g_shadow_valid = false;
+}
+
+void gui_gfx_invalidate(void) {
+    g_shadow_valid = false;
+}
+
+uint64_t gui_gfx_last_present_pixels(void) {
+    return g_present_pixels;
 }
 
 int gui_gfx_get_width(void) { return g_width; }
@@ -234,8 +272,55 @@ void gui_gfx_blit(int dx, int dy, int w, int h, const uint32_t* src_buf) {
     }
 }
 
+/*
+ * Push the back buffer to the screen, writing only what changed.
+ *
+ * Every frame is still composited in full, so the cheapest reliable way to
+ * find the damage is to diff against the shadow copy: a RAM read is orders of
+ * magnitude cheaper than the framebuffer write it avoids. A typical idle
+ * desktop frame only moves the cursor and the clock, which turns a 3.6 MB
+ * blit at 1280x720 into a few kilobytes.
+ *
+ * Each row is narrowed to the span between its first and last differing pixel
+ * rather than tracked as a set of runs: one memcpy per row keeps the inner
+ * loop tight, and a row that changed in two places is rare enough that
+ * bridging the gap costs less than the extra bookkeeping.
+ */
 void gui_gfx_present(void) {
-    if (g_frontbuffer && g_backbuffer) {
-        memcpy(g_frontbuffer, g_backbuffer, g_width * g_height * sizeof(uint32_t));
+    if (!g_frontbuffer || !g_backbuffer) return;
+
+    size_t pixels = (size_t)g_width * (size_t)g_height;
+
+    /* No shadow (allocation failed) or it does not describe the screen yet:
+     * push the whole frame and start tracking from there. */
+    if (!g_shadow || !g_shadow_valid) {
+        memcpy(g_frontbuffer, g_backbuffer, pixels * sizeof(uint32_t));
+        if (g_shadow) {
+            memcpy(g_shadow, g_backbuffer, pixels * sizeof(uint32_t));
+            g_shadow_valid = true;
+        }
+        g_present_pixels = pixels;
+        return;
     }
+
+    size_t pushed = 0;
+    for (int y = 0; y < g_height; y++) {
+        size_t row = (size_t)y * (size_t)g_width;
+        const uint32_t* back = g_backbuffer + row;
+        uint32_t* shadow = g_shadow + row;
+
+        int x0 = 0;
+        while (x0 < g_width && back[x0] == shadow[x0]) x0++;
+        if (x0 == g_width) continue;            /* row is untouched */
+
+        int x1 = g_width - 1;
+        while (x1 > x0 && back[x1] == shadow[x1]) x1--;
+
+        size_t span = (size_t)(x1 - x0 + 1);
+        memcpy(g_frontbuffer + row + x0, back + x0, span * sizeof(uint32_t));
+        memcpy(shadow + x0, back + x0, span * sizeof(uint32_t));
+        pushed += span;
+    }
+
+    g_present_pixels = pushed;
 }

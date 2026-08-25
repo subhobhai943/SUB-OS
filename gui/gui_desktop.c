@@ -75,6 +75,24 @@ static bool g_show_grid = true;
 static int  g_selected_icon = -1;
 static int  g_hover_menu_item = -1;
 static uint64_t g_frames = 0;
+
+/*
+ * Cached wallpaper.
+ *
+ * The background is a full-screen vertical gradient with an optional blended
+ * grid and three strings on top. None of it changes between frames, but it was
+ * being recomputed pixel by pixel on every pass of the compositor loop. It is
+ * drawn once into this buffer instead and blitted back each frame; the cache
+ * is dropped whenever the resolution or the grid setting changes.
+ */
+/* Rolling count of pixels actually written to the framebuffer, so the cost of
+ * the compositor is visible on the console without a profiler attached. */
+static uint64_t  g_pushed_pixels = 0;
+
+static uint32_t* g_wallpaper   = NULL;
+static int       g_wallpaper_w = 0;
+static int       g_wallpaper_h = 0;
+static bool      g_wallpaper_grid = false;
 static uint8_t  g_cpu_history[48];
 
 // The launcher geometry below is authored against an 800x600 work area.
@@ -128,6 +146,10 @@ void gui_desktop_init(void) {
     int h = (fb && fb->height > 0) ? fb->height : GUI_DEFAULT_HEIGHT;
 
     gui_gfx_init(fb_addr, w, h);
+    /* The console owned the framebuffer until now, so nothing on screen
+     * matches the compositor's idea of it; drop both caches. */
+    gui_gfx_invalidate();
+    gui_desktop_invalidate_background();
     gui_icons_init();
     gui_cursor_init();
     gui_dialog_init();
@@ -149,10 +171,8 @@ void gui_desktop_init(void) {
 // Wallpaper and desktop icons
 // ===========================================================================
 
-void gui_desktop_render_background(void) {
-    int sw = gui_gfx_get_width();
-    int wh = gui_desktop_workarea_height();
-
+/* Paint the wallpaper straight into the back buffer. */
+static void desktop_paint_background(int sw, int wh) {
     gui_gfx_draw_gradient_v(0, 0, sw, wh, 0xFF0B132B, 0xFF1C2541);
 
     if (g_show_grid) {
@@ -173,6 +193,56 @@ void gui_desktop_render_background(void) {
     gui_gfx_draw_string_16_shadow(bx - 60, by, "SUB-OS DESKTOP", 0xFF38BDF8, 0xFF0284C7);
     gui_gfx_draw_string(bx - 76, by + 22, "Modular Monolithic Kernel v0.2.0-LTS", 0xFF64748B);
     gui_gfx_draw_string(bx - 76, by + 36, "F5 cycle  F6 cascade  F7 tile  F8 max", 0xFF475569);
+}
+
+void gui_desktop_invalidate_background(void) {
+    if (g_wallpaper) {
+        kfree(g_wallpaper);
+        g_wallpaper = NULL;
+    }
+    g_wallpaper_w = 0;
+    g_wallpaper_h = 0;
+}
+
+void gui_desktop_render_background(void) {
+    int sw = gui_gfx_get_width();
+    int wh = gui_desktop_workarea_height();
+    uint32_t* back = gui_gfx_get_backbuffer();
+
+    if (sw <= 0 || wh <= 0 || !back) return;
+
+    bool stale = (!g_wallpaper || g_wallpaper_w != sw || g_wallpaper_h != wh ||
+                  g_wallpaper_grid != g_show_grid);
+
+    if (stale) {
+        if (g_wallpaper) {
+            kfree(g_wallpaper);
+            g_wallpaper = NULL;
+        }
+        /* Paint it once through the normal primitives, then keep a copy. The
+         * back buffer is the scratch space, which is safe because the caller
+         * redraws everything above the wallpaper straight afterwards. */
+        desktop_paint_background(sw, wh);
+
+        g_wallpaper = (uint32_t*)kmalloc((size_t)sw * (size_t)wh * sizeof(uint32_t));
+        if (g_wallpaper) {
+            for (int y = 0; y < wh; y++) {
+                memcpy(g_wallpaper + (size_t)y * sw,
+                       back + (size_t)y * sw,
+                       (size_t)sw * sizeof(uint32_t));
+            }
+            g_wallpaper_w = sw;
+            g_wallpaper_h = wh;
+            g_wallpaper_grid = g_show_grid;
+        }
+        return;   /* the back buffer already holds the freshly painted copy */
+    }
+
+    for (int y = 0; y < wh; y++) {
+        memcpy(back + (size_t)y * sw,
+               g_wallpaper + (size_t)y * sw,
+               (size_t)sw * sizeof(uint32_t));
+    }
 }
 
 void gui_desktop_render_icons(void) {
@@ -676,6 +746,18 @@ int gui_desktop_run(void) {
 
         gui_gfx_present();
         g_frames++;
+        g_pushed_pixels += gui_gfx_last_present_pixels();
+
+        if ((g_frames & 0xFF) == 0) {
+            uint64_t full = (uint64_t)gui_gfx_get_width() * (uint64_t)gui_gfx_get_height();
+            uint64_t avg  = g_pushed_pixels / 256;
+            printk(KERN_INFO "GUI: %llu frames, %llu px/frame pushed of %llu (%llu%%)\n",
+                   (unsigned long long)g_frames,
+                   (unsigned long long)avg,
+                   (unsigned long long)full,
+                   (unsigned long long)(full ? (avg * 100) / full : 0));
+            g_pushed_pixels = 0;
+        }
     }
 
     // Hand the screen to the framebuffer console. Without this the shell writes
@@ -683,6 +765,11 @@ int gui_desktop_run(void) {
     // framebuffer, so the TTY is visible only on the serial line -- which is
     // the host terminal, not the emulator window.
     fbcon_enable(true);
+
+    /* The console is about to draw over the framebuffer, so the shadow copy
+     * stops describing the screen; release the wallpaper cache with it. */
+    gui_gfx_invalidate();
+    gui_desktop_invalidate_background();
 
     printk(KERN_INFO "GUI: Desktop session ended after %llu frames, TTY restored\n",
            (unsigned long long)g_frames);
