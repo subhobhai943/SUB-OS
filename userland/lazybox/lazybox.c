@@ -709,6 +709,8 @@ static int applet_free(int argc, char** argv) {
            total_kb, used_kb, free_kb, free_kb);
     printk("Heap:       %8llu    %8llu    %8llu\n",
            kmalloc_get_total() / 1024, kmalloc_get_used() / 1024, kmalloc_get_free() / 1024);
+    printk("            (dynamic kernel heap, grown on demand %llu time(s))\n",
+           (unsigned long long)heap_get_grow_count());
     return 0;
 }
 
@@ -1137,7 +1139,7 @@ static int applet_aead(int argc, char** argv) {
 static int applet_whoami(int argc, char** argv) {
     (void)argc; (void)argv;
     const user_account_t* u = auth_get_current_user();
-    printk("%s\n", u ? u->username : "root");
+    printk("%s\n", u ? u->username : "SUB");
     return 0;
 }
 
@@ -1652,7 +1654,7 @@ static int applet_ssh(int argc, char** argv) {
         return 1;
     }
 
-    char username[32] = "root";
+    char username[32] = "SUB";
     char host[64] = "localhost";
     uint16_t port = 22;
 
@@ -1774,7 +1776,7 @@ static int applet_logread(int argc, char** argv) {
 }
 
 static int applet_su(int argc, char** argv) {
-    const char* target = (argc >= 2) ? argv[1] : "root";
+    const char* target = (argc >= 2) ? argv[1] : "SUB";
     if (auth_set_current_user(target) == 0) {
         printk(KERN_INFO "Switched to user '%s'\n", target);
         return 0;
@@ -1784,7 +1786,7 @@ static int applet_su(int argc, char** argv) {
 }
 
 static int applet_passwd(int argc, char** argv) {
-    const char* user = (argc >= 2) ? argv[1] : "root";
+    const char* user = (argc >= 2) ? argv[1] : "SUB";
     const char* new_pass = (argc >= 3) ? argv[2] : "password";
     if (auth_change_password(user, new_pass) == 0) {
         printk(KERN_INFO "passwd: password updated successfully for '%s'\n", user);

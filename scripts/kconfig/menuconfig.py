@@ -829,17 +829,26 @@ def main():
             print(f"menuconfig: lxdialog front-end failed ({exc}); "
                   f"falling back to the curses UI.", file=sys.stderr)
 
-    # Fallback to Curses GUI replica
-    try:
-        import curses
-        curses.wrapper(run_curses_gui)
-        print(f"*** Configuration saved to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
-        return
-    except Exception as exc:
-        print(f"menuconfig: curses UI unavailable ({exc}); "
-              f"writing the current configuration non-interactively.", file=sys.stderr)
+    # Fallback to the curses GUI replica, but only when we genuinely have an
+    # interactive terminal on both ends. Probing curses without a real TTY makes
+    # it fail deep inside the wrapper's teardown (e.g. "nocbreak() returned
+    # ERR"), which looked like a crash; gate on isatty so a piped or CI
+    # invocation drops straight to the non-interactive writer instead.
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        try:
+            import curses
+            curses.wrapper(run_curses_gui)
+            print(f"*** Configuration saved to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")
+            return
+        except Exception as exc:
+            print(f"menuconfig: curses UI unavailable ({exc}); "
+                  f"writing the current configuration non-interactively.", file=sys.stderr)
+    else:
+        print("menuconfig: no interactive terminal detected; "
+              "writing the current configuration non-interactively.", file=sys.stderr)
 
-    # Last resort: no usable TTY at all.
+    # Last resort: no usable TTY at all. Preserve an existing .config if present,
+    # otherwise fall back to the architecture default so the build never stalls.
     cfg = load_config()
     save_config(cfg)
     print(f"*** Configuration written to {CONFIG_FILE} and {AUTOCONF_HEADER} ***")

@@ -23,10 +23,16 @@ void auth_init(void) {
     user_count = 0;
     current_uid = 0;
 
-    // Seed default users
-    auth_add_user("root", "root", 0, 0, "/root", "/bin/sh");
+    // Seed default users. SUB/SUB is the primary superuser account -- the way
+    // Kali ships with kali/kali -- so the username and password both default to
+    // "SUB". It is seeded first, so uid 0 resolves to it as the logged-in user.
+    auth_add_user("SUB", "SUB", 0, 0, "/root", "/bin/sh");
+    auth_add_user("root", "root", 0, 0, "/root", "/bin/sh"); // kept for compatibility
     auth_add_user("admin", "admin123", 1000, 1000, "/home/admin", "/bin/sh");
     auth_add_user("guest", "guest", 1001, 1001, "/home/guest", "/bin/sh");
+
+    // Log in as SUB by default.
+    auth_set_current_user("SUB");
 
     printk(KERN_INFO "AUTH: Pluggable Authentication & SHA-256 Shadow Password engine active\n");
 }

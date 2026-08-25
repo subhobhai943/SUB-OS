@@ -330,7 +330,7 @@ DEPS = $(C_OBJS:.o=.d) $(CPP_OBJS:.o=.d) $(S_OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean run run-fullscreen debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
+.PHONY: all clean run run-headless run-fullscreen run-vnc run-server debug info configure menuconfig config tui nconfig defconfig x86_64_defconfig aarch64_defconfig armv8_defconfig armv8i_defconfig armv81_defconfig arm32_defconfig qemu help
 
 all: $(TARGET)
 
@@ -448,23 +448,28 @@ $(IMAGE): $(BUILD_DIR)/boot/boot.bin $(BUILD_DIR)/boot/stage2.bin $(BUILD_DIR)/k
 # -----------------------------------------------------------------------------
 # Execution & Emulation Targets
 # -----------------------------------------------------------------------------
-run qemu: $(TARGET)
-	$(QEMU_CMD)
-
 # -vga std gives the Bochs VBE adapter the kernel drives. vgamem_mb is raised
 # because a 1280x720 32-bit framebuffer needs more than the 8 MB default.
 QEMU_VGA = -device VGA,vgamem_mb=32
 
-run-gui: $(TARGET)
+# `make run` boots straight into the SUB-OS Graphical Desktop Environment. The
+# guest window scales with zoom-to-fit; pass `nogui`/`text` on the kernel
+# command line for the emergency TTY. Use `make run-headless` for serial only.
+run qemu: $(TARGET)
 ifeq ($(ARCH), x86_64)
-	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) \
+	qemu-system-x86_64 -drive format=raw,file=$(IMAGE) -m 256M \
 		-netdev user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80 \
 		-device e1000,netdev=net0 $(QEMU_VGA) -display gtk,zoom-to-fit=on -serial stdio
 else ifneq ($(filter $(ARCH), aarch64 arm64),)
-	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
+	qemu-system-aarch64 -M virt -cpu cortex-a57 -m 256M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
 else
-	qemu-system-arm -M virt -cpu cortex-a15 -m 128M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
+	qemu-system-arm -M virt -cpu cortex-a15 -m 256M -kernel $(BUILD_DIR)/kernel.elf -device virtio-gpu-pci -serial stdio
 endif
+
+# Headless: no graphical window, kernel console on the serial line only. Boot
+# with `nogui` on the kernel command line to reach the TTY in this mode.
+run-headless: $(TARGET)
+	$(QEMU_CMD)
 
 # Fullscreen without distortion: zoom-to-fit scales the guest while preserving
 # its aspect ratio, letterboxing rather than stretching on a wider panel.
@@ -521,7 +526,10 @@ help:
 	@echo "  make aarch64_defconfig- Load AArch64 default configuration"
 	@echo "  make armv8i_defconfig - Load ARMv8i (32-bit ARM) default configuration"
 	@echo "  make all [ARCH=...]   - Compile kernel image for selected architecture"
-	@echo "  make qemu [ARCH=...]  - Boot the compiled kernel in QEMU emulator"
+	@echo "  make run [ARCH=...]   - Boot into the SUB-OS Graphical Desktop in QEMU"
+	@echo "  make run-headless     - Boot in QEMU with serial console only (no window)"
+	@echo "  make run-fullscreen   - Boot the desktop in a full-screen QEMU window"
+	@echo "  make run-vnc          - Boot the desktop and expose it over VNC :0"
 	@echo "  make clean            - Remove all compiled objects and disk images"
 	@echo "  make info             - Display build configuration and source metrics"
 

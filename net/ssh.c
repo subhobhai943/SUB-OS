@@ -30,7 +30,7 @@ int sshd_start(uint16_t port) {
     ssh_sessions[0].in_use = true;
     ssh_sessions[0].state = SSH_STATE_SHELL_ACTIVE;
     ssh_sessions[0].authenticated = true;
-    strcpy(ssh_sessions[0].username, "root");
+    strcpy(ssh_sessions[0].username, "SUB");
     ssh_sessions[0].client_ip = 0x0A000202; // 10.0.2.2 (QEMU Host Gateway)
     ssh_sessions[0].client_port = 52341;
     ssh_sessions[0].connect_time = pit_get_ticks() / 100;

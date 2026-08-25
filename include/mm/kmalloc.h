@@ -14,6 +14,7 @@ void  kfree(void* ptr);
 size_t heap_get_used_bytes(void);
 size_t heap_get_free_bytes(void);
 size_t heap_get_total_bytes(void);
+size_t heap_get_grow_count(void); // Number of on-demand PMM growth events
 
 static inline size_t kmalloc_get_used(void) { return heap_get_used_bytes(); }
 static inline size_t kmalloc_get_free(void) { return heap_get_free_bytes(); }

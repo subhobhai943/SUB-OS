@@ -26,19 +26,41 @@ static int simple_atoi(const char* s) {
 // =================================================================
 // 1. System Performance Monitor App (High-Res 320x240)
 // =================================================================
-static uint8_t g_cpu_history[60] = {
-    12, 15, 18, 22, 30, 25, 20, 35, 45, 50, 42, 38, 55, 60, 48, 52, 35, 30, 25, 20,
-    28, 32, 45, 60, 55, 40, 30, 25, 20, 18, 22, 25, 15, 18, 22, 30, 35, 40, 38, 42,
-    30, 25, 20, 18, 15, 22, 28, 35, 40, 48, 52, 45, 38, 30, 25, 20, 18, 15, 20, 24
-};
+/* Rolling trace of live heap utilisation (percent), newest sample on the right.
+ * Seeded flat and advanced one sample per repaint from real allocator stats. */
+static uint8_t g_heap_history[60];
+static bool    g_heap_history_seeded = false;
+
+static void sysmon_sample_heap(uint8_t pct) {
+    if (!g_heap_history_seeded) {
+        for (int i = 0; i < 60; i++) g_heap_history[i] = pct;
+        g_heap_history_seeded = true;
+        return;
+    }
+    for (int i = 0; i < 59; i++) g_heap_history[i] = g_heap_history[i + 1];
+    g_heap_history[59] = pct;
+}
 
 static void sysmon_paint(gui_window_t* win) {
     int cx = win->x + 12;
     int cy = win->y + GUI_TITLEBAR_HEIGHT + 10;
 
-    gui_gfx_draw_string_16_shadow(cx, cy, "CPU Load History (Real-Time)", GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
-    
-    // CPU Graph Box
+    /* Pull live figures straight from the kernel allocators. */
+    uint64_t heap_used  = (uint64_t)heap_get_used_bytes();
+    uint64_t heap_total = (uint64_t)heap_get_total_bytes();
+    uint64_t heap_free  = (uint64_t)heap_get_free_bytes();
+    uint64_t heap_grows = (uint64_t)heap_get_grow_count();
+    uint32_t heap_pct   = heap_total ? (uint32_t)((heap_used * 100) / heap_total) : 0;
+    if (heap_pct > 100) heap_pct = 100;
+
+    uint64_t ram_free_mb  = (pmm_get_free_pages()  * PMM_PAGE_SIZE) / (1024 * 1024);
+    uint64_t ram_total_mb = pmm_get_usable_memory() / (1024 * 1024);
+
+    sysmon_sample_heap((uint8_t)heap_pct);
+
+    gui_gfx_draw_string_16_shadow(cx, cy, "Heap Utilization History (Live)", GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
+
+    // Heap Graph Box
     int graph_x = cx;
     int graph_y = cy + 20;
     int graph_w = win->width - 24;
@@ -54,31 +76,37 @@ static void sysmon_paint(gui_window_t* win) {
         gui_gfx_draw_line(gx, graph_y + 1, gx, graph_y + graph_h - 2, 0xFF1E293B);
     }
 
-    // Plot Waveform
+    // Plot Waveform from the live heap trace
     for (int i = 0; i < 59 && (i * 5 + 5) < graph_w; i++) {
-        int y1 = graph_y + graph_h - 3 - (g_cpu_history[i] * (graph_h - 6)) / 100;
-        int y2 = graph_y + graph_h - 3 - (g_cpu_history[i + 1] * (graph_h - 6)) / 100;
+        int y1 = graph_y + graph_h - 3 - (g_heap_history[i] * (graph_h - 6)) / 100;
+        int y2 = graph_y + graph_h - 3 - (g_heap_history[i + 1] * (graph_h - 6)) / 100;
         gui_gfx_draw_line(graph_x + 4 + i * 5, y1, graph_x + 4 + (i + 1) * 5, y2, GUI_THEME_SUCCESS);
     }
 
-    // Memory Usage Bar
+    // Heap Usage Bar (real used / total)
+    char buf[80];
     int mem_y = graph_y + graph_h + 12;
-    gui_gfx_draw_string_16(cx, mem_y, "RAM Usage: 24 MB / 128 MB (18% Heap)", GUI_THEME_TEXT_MAIN);
-    
+    snprintf(buf, sizeof(buf), "Heap: %llu / %llu KB (%u%%)",
+             (unsigned long long)(heap_used / 1024),
+             (unsigned long long)(heap_total / 1024), heap_pct);
+    gui_gfx_draw_string_16(cx, mem_y, buf, GUI_THEME_TEXT_MAIN);
+
     int bar_y = mem_y + 20;
     int bar_w = win->width - 24;
     gui_gfx_fill_rect(cx, bar_y, bar_w, 12, GUI_THEME_BG_DARK);
-    gui_gfx_fill_rect(cx, bar_y, (bar_w * 24) / 128, 12, GUI_THEME_ACCENT);
+    gui_gfx_fill_rect(cx, bar_y, (int)((uint64_t)bar_w * heap_pct / 100), 12,
+                      (heap_pct >= 90) ? GUI_THEME_DANGER : GUI_THEME_ACCENT);
     gui_gfx_draw_rect(cx, bar_y, bar_w, 12, GUI_THEME_BORDER);
 
-    // System Telemetry Metrics
-    char buf[64];
+    // System Telemetry Metrics (live)
     cpufreq_stats_t stats = cpufreq_get_stats();
-    snprintf(buf, sizeof(buf), "Clock: %u.%03u GHz | Governor: ondemand",
-             stats.current_khz / 1000000, (stats.current_khz % 1000000) / 1000);
+    snprintf(buf, sizeof(buf), "Clock: %u.%03u GHz | Heap free: %llu KB | Grows: %llu",
+             stats.current_khz / 1000000, (stats.current_khz % 1000000) / 1000,
+             (unsigned long long)(heap_free / 1024), (unsigned long long)heap_grows);
     gui_gfx_draw_string(cx, bar_y + 20, buf, GUI_THEME_TEXT_MUTED);
 
-    snprintf(buf, sizeof(buf), "Core Tasks: 6 Active | VFS Cache: 98.4%% Hit", 0);
+    snprintf(buf, sizeof(buf), "System RAM: %llu MB free / %llu MB usable",
+             (unsigned long long)ram_free_mb, (unsigned long long)ram_total_mb);
     gui_gfx_draw_string(cx, bar_y + 32, buf, GUI_THEME_TEXT_DIM);
 }
 
