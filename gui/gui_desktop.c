@@ -78,6 +78,7 @@ static int  g_context_x = 0, g_context_y = 0;
 static bool g_desktop_running   = false;
 static bool g_prev_left = false, g_prev_right = false;
 static bool g_show_grid = true;
+static bool g_clock_seconds = true;
 static int  g_selected_icon = -1;
 static int  g_hover_menu_item = -1;
 static uint64_t g_frames = 0;
@@ -359,9 +360,18 @@ void gui_desktop_render_taskbar(void) {
 
     rtc_time_t now;
     rtc_get_time(&now);
-    snprintf(buf, sizeof(buf), "%02u:%02u:%02u", now.hour, now.minute, now.second);
+    if (g_clock_seconds) {
+        snprintf(buf, sizeof(buf), "%02u:%02u:%02u", now.hour, now.minute, now.second);
+    } else {
+        snprintf(buf, sizeof(buf), "%02u:%02u", now.hour, now.minute);
+    }
     gui_gfx_draw_string_16_shadow(sw - 84, ty + 8, buf, GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
 }
+
+void gui_desktop_set_grid(bool on)          { g_show_grid = on; }
+bool gui_desktop_get_grid(void)             { return g_show_grid; }
+void gui_desktop_set_clock_seconds(bool on) { g_clock_seconds = on; }
+bool gui_desktop_get_clock_seconds(void)    { return g_clock_seconds; }
 
 // ===========================================================================
 // Start menu

@@ -10,6 +10,7 @@
 #include <gui/gui_dialog.h>
 #include <gui/gui_gfx.h>
 #include <gui/gui_theme.h>
+#include <gui/gui_desktop.h>
 #include <kernel/ktest.h>
 #include <kernel/printk.h>
 #include <kernel/task.h>
@@ -54,6 +55,23 @@ typedef struct {
 
 static const char* const settings_tabs[] = { "Appearance", "Input", "Power" };
 
+// Map the Settings governor radio (0 powersave / 1 ondemand / 2 performance)
+// to and from the cpufreq_gov_type_t enum, whose order differs.
+static cpufreq_gov_type_t settings_gov_from_choice(int choice) {
+    switch (choice) {
+        case 0:  return CPUFREQ_GOV_POWERSAVE;
+        case 2:  return CPUFREQ_GOV_PERFORMANCE;
+        default: return CPUFREQ_GOV_ONDEMAND;
+    }
+}
+static int settings_choice_from_gov(cpufreq_gov_type_t gov) {
+    switch (gov) {
+        case CPUFREQ_GOV_POWERSAVE:   return 0;
+        case CPUFREQ_GOV_PERFORMANCE: return 2;
+        default:                      return 1;
+    }
+}
+
 static void settings_paint(gui_window_t* win) {
     settings_data_t* sd = (settings_data_t*)win->user_data;
     if (!sd) return;
@@ -69,7 +87,9 @@ static void settings_paint(gui_window_t* win) {
     if (sd->active_tab == 0) {
         gui_label_bold(10, y, "Desktop Appearance", GUI_THEME_PRIMARY);
         y += 24;
-        gui_checkbox(10, 10, y, "Show wallpaper grid overlay", &sd->show_grid);
+        if (gui_checkbox(10, 10, y, "Show wallpaper grid overlay", &sd->show_grid)) {
+            gui_desktop_set_grid(sd->show_grid);   // apply immediately
+        }
         y += 22;
         gui_checkbox(11, 10, y, "Drop shadows under windows", &sd->window_shadows);
         y += 26;
@@ -95,7 +115,9 @@ static void settings_paint(gui_window_t* win) {
 
         gui_checkbox(21, 10, y, "Enable UI sound effects", &sd->sound_enabled);
         y += 22;
-        gui_checkbox(22, 10, y, "Show seconds in taskbar clock", &sd->show_clock_seconds);
+        if (gui_checkbox(22, 10, y, "Show seconds in taskbar clock", &sd->show_clock_seconds)) {
+            gui_desktop_set_clock_seconds(sd->show_clock_seconds);   // apply immediately
+        }
         y += 30;
 
         const mouse_state_t* ms = mouse_get_state();
@@ -111,9 +133,13 @@ static void settings_paint(gui_window_t* win) {
 
         gui_label(10, y, "CPUFreq governor", GUI_THEME_TEXT_MUTED);
         y += 16;
-        gui_radio(30, 14, y, "powersave",   &sd->governor_choice, 0); y += 18;
-        gui_radio(31, 14, y, "ondemand",    &sd->governor_choice, 1); y += 18;
-        gui_radio(32, 14, y, "performance", &sd->governor_choice, 2); y += 26;
+        bool gov_changed = false;
+        gov_changed |= gui_radio(30, 14, y, "powersave",   &sd->governor_choice, 0); y += 18;
+        gov_changed |= gui_radio(31, 14, y, "ondemand",    &sd->governor_choice, 1); y += 18;
+        gov_changed |= gui_radio(32, 14, y, "performance", &sd->governor_choice, 2); y += 26;
+        if (gov_changed) {
+            cpufreq_set_governor(settings_gov_from_choice(sd->governor_choice));
+        }
 
         cpufreq_stats_t cf = cpufreq_get_stats();
         snprintf(buf, sizeof(buf), "Current clock: %u.%03u GHz",
@@ -128,6 +154,10 @@ static void settings_paint(gui_window_t* win) {
 
     int btn_y = gui_widget_client_height() - 32;
     if (gui_button(90, 10, btn_y, 96, 24, "Apply")) {
+        // Push every preference to the live system, then confirm.
+        gui_desktop_set_grid(sd->show_grid);
+        gui_desktop_set_clock_seconds(sd->show_clock_seconds);
+        cpufreq_set_governor(settings_gov_from_choice(sd->governor_choice));
         gui_dialog_show(GUI_DIALOG_INFO, "Settings",
                         "Preferences applied to the current desktop session.");
     }
@@ -140,9 +170,21 @@ static void settings_paint(gui_window_t* win) {
         sd->cursor_speed = 5;
         sd->brightness = 100;
         sd->governor_choice = 1;
+        // Apply the restored defaults live as well.
+        gui_desktop_set_grid(true);
+        gui_desktop_set_clock_seconds(true);
+        cpufreq_set_governor(CPUFREQ_GOV_ONDEMAND);
     }
 
     gui_widget_end();
+}
+
+static void settings_event(gui_window_t* win, const gui_event_t* ev) {
+    if (ev->type == GUI_EVENT_CLOSE) {
+        if (win->user_data) { kfree(win->user_data); win->user_data = NULL; }
+        return;
+    }
+    gui_widget_feed_event(win, ev);
 }
 
 void gui_app_settings_launch(int x, int y, int w, int h) {
@@ -153,17 +195,18 @@ void gui_app_settings_launch(int x, int y, int w, int h) {
     settings_data_t* sd = (settings_data_t*)kzalloc(sizeof(settings_data_t));
     if (!sd) return;
 
-    sd->show_grid = true;
-    sd->window_shadows = true;
-    sd->sound_enabled = true;
-    sd->show_clock_seconds = true;
-    sd->cursor_speed = 5;
-    sd->brightness = 100;
-    sd->governor_choice = 1;
+    // Seed the controls from the live system so the app reflects real state.
+    sd->show_grid          = gui_desktop_get_grid();
+    sd->window_shadows     = true;
+    sd->sound_enabled      = true;
+    sd->show_clock_seconds = gui_desktop_get_clock_seconds();
+    sd->cursor_speed       = 5;
+    sd->brightness         = 100;
+    sd->governor_choice    = settings_choice_from_gov(cpufreq_get_stats().governor);
 
     win->user_data = sd;
     win->paint = settings_paint;
-    win->handle_event = app_forward_event;
+    win->handle_event = settings_event;
 }
 
 // ===========================================================================

@@ -32,6 +32,14 @@ bool gui_desktop_handle_click(int mx, int my);
 // Height of the area windows may occupy (screen minus taskbar).
 int  gui_desktop_workarea_height(void);
 
+// Wallpaper grid overlay (also toggled from the desktop context menu).
+void gui_desktop_set_grid(bool on);
+bool gui_desktop_get_grid(void);
+
+// Taskbar clock: show seconds (HH:MM:SS) instead of HH:MM.
+void gui_desktop_set_clock_seconds(bool on);
+bool gui_desktop_get_clock_seconds(void);
+
 void gui_desktop_request_exit(void);
 int  gui_desktop_run(void);
 
