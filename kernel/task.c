@@ -10,11 +10,56 @@ static task_t* current_task = NULL;
 static task_t kernel_idle_task;
 static LIST_HEAD(global_tasks);
 
-static void task_wrapper(task_entry_fn_t entry, void* arg) {
-    if (entry) {
-        entry(arg);
-    }
-    task_exit(0);
+/* Per-arch context switch primitives (see arch/<arch>/cpu/switch.*). */
+extern void sub_ctx_switch(void** save_sp, void* load_sp);
+extern void sub_thread_trampoline(void);
+
+/* Retire the running thread and switch to the next runnable one (sched.c). */
+extern void sched_exit_current(void);
+
+/*
+ * Forge the initial saved-context frame for a brand-new thread so that the
+ * first switch into it lands on sub_thread_trampoline with the entry function
+ * and its argument sitting in the callee-saved registers the trampoline reads.
+ * The exact word layout mirrors the pop/ldp/pop sequence in each arch's
+ * sub_ctx_switch, so the two must be kept in lockstep.
+ */
+static void* task_forge_frame(uint64_t stack_base, size_t stack_size,
+                              task_entry_fn_t entry, void* arg) {
+#if defined(__x86_64__)
+    uint64_t top = (stack_base + stack_size) & ~0xFULL;   /* 16-byte aligned */
+    uint64_t* sp = (uint64_t*)top;
+    *(--sp) = (uint64_t)&sub_thread_trampoline;  /* ret target             */
+    *(--sp) = 0;                                 /* rbp                    */
+    *(--sp) = 0;                                 /* rbx                    */
+    *(--sp) = (uint64_t)entry;                   /* r12 -> entry           */
+    *(--sp) = (uint64_t)arg;                     /* r13 -> arg             */
+    *(--sp) = 0;                                 /* r14                    */
+    *(--sp) = 0;                                 /* r15                    */
+    *(--sp) = 0x2;                               /* rflags, IF clear       */
+    return (void*)sp;
+#elif defined(__aarch64__) || defined(__arm64__)
+    uint64_t top = (stack_base + stack_size) & ~0xFULL;
+    uint64_t* sp = (uint64_t*)top;
+    sp -= 12;                                    /* x19..x30 */
+    sp[0]  = (uint64_t)entry;                    /* x19 -> entry           */
+    sp[1]  = (uint64_t)arg;                      /* x20 -> arg             */
+    for (int i = 2; i <= 10; i++) sp[i] = 0;     /* x21..x28, x29(fp)      */
+    sp[11] = (uint64_t)&sub_thread_trampoline;   /* x30(lr) -> trampoline  */
+    return (void*)sp;
+#elif defined(__arm__)
+    uint32_t top = (uint32_t)((stack_base + stack_size) & ~0x7ULL);
+    uint32_t* sp = (uint32_t*)top;
+    sp -= 9;                                     /* r4..r11, lr */
+    sp[0] = (uint32_t)(uintptr_t)entry;          /* r4 -> entry            */
+    sp[1] = (uint32_t)(uintptr_t)arg;            /* r5 -> arg              */
+    for (int i = 2; i <= 7; i++) sp[i] = 0;      /* r6..r11                */
+    sp[8] = (uint32_t)(uintptr_t)&sub_thread_trampoline; /* lr             */
+    return (void*)sp;
+#else
+    (void)stack_base; (void)stack_size; (void)entry; (void)arg;
+    return NULL;
+#endif
 }
 
 task_t* task_create(const char* name, task_entry_fn_t entry, void* arg, int priority) {
@@ -37,14 +82,10 @@ task_t* task_create(const char* name, task_entry_fn_t entry, void* arg, int prio
         return NULL;
     }
 
-    uint64_t* stack_top = (uint64_t*)(task->stack_base + task->stack_size);
-
-    // Set up initial stack frame for AMD64
-    *(--stack_top) = (uint64_t)arg;          // RDI (arg)
-    *(--stack_top) = (uint64_t)entry;        // RSI (entry function)
-    *(--stack_top) = (uint64_t)task_wrapper; // RIP
-
-    task->rsp = (uint64_t)stack_top;
+    // Forge the initial saved-register frame so the first context switch into
+    // this thread lands on the trampoline with entry/arg in place.
+    task->ctx_sp = task_forge_frame(task->stack_base, task->stack_size, entry, arg);
+    task->rsp = (uint64_t)(uintptr_t)task->ctx_sp;
 
     INIT_LIST_HEAD(&task->list);
     INIT_LIST_HEAD(&task->all_list);
@@ -59,8 +100,9 @@ void task_exit(int exit_code) {
     if (current_task && current_task->pid != 0) {
         current_task->exit_code = exit_code;
         current_task->state = TASK_STATE_DEAD;
-        sched_remove_task(current_task);
-        sched_yield();
+        current_task->weave_on = 0;
+        sched_exit_current();  // switches to the next runnable thread; only
+                               // falls through here if nothing else is runnable
     }
     while (1) {
         arch_halt();
