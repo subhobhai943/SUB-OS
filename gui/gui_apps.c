@@ -546,3 +546,106 @@ void gui_app_life_launch(int x, int y, int w, int h) {
         win->handle_event = life_event;
     }
 }
+
+// =================================================================
+// 8. Rust Kernel Lab -- showcases the memory-safe Rust subsystem
+// =================================================================
+typedef struct {
+    rust_crypto_bench_result_t bench; // measured once at launch
+    bool     have_bench;
+    uint32_t frame;
+    uint8_t  entropy[8];              // live CSPRNG sample
+} rustlab_data_t;
+
+static void rustlab_bar(int x, int y, int w, const char* label, uint32_t value,
+                        uint32_t max_value, uint32_t color) {
+    char buf[48];
+    gui_gfx_draw_string(x, y, label, GUI_THEME_TEXT_MAIN);
+    int bx = x + 96;
+    int bw = w - 96 - 64;
+    if (bw < 20) bw = 20;
+    gui_gfx_fill_rect(bx, y, bw, 10, GUI_THEME_BG_DARK);
+    uint32_t denom = (max_value > 0) ? max_value : 1;
+    int fill = (int)(((uint64_t)value * (uint64_t)bw) / denom);
+    if (fill > bw) fill = bw;
+    gui_gfx_fill_rect(bx, y, fill, 10, color);
+    gui_gfx_draw_rect(bx, y, bw, 10, GUI_THEME_BORDER);
+    snprintf(buf, sizeof(buf), "%u MB/s", value);
+    gui_gfx_draw_string(bx + bw + 6, y, buf, GUI_THEME_TEXT_MUTED);
+}
+
+static void rustlab_paint(gui_window_t* win) {
+    rustlab_data_t* rd = (rustlab_data_t*)win->user_data;
+    if (!rd) return;
+
+    int cx = win->x + 14;
+    int cy = win->y + GUI_TITLEBAR_HEIGHT + 12;
+    int w  = win->width - 28;
+
+    gui_gfx_draw_string_16_shadow(cx, cy, "Rust Kernel Subsystem (no_std)", GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
+    cy += 26;
+
+    // Checksum engine (recomputed live -- it is cheap)
+    static const char sample[] = "SUB-OS";
+    uint32_t crc = rust_crc32c((const uint8_t*)sample, 6);
+    uint32_t adl = rust_adler32((const uint8_t*)sample, 6);
+    char buf[80];
+    gui_gfx_draw_string(cx, cy, "Checksums of \"SUB-OS\":", GUI_THEME_SUCCESS);
+    cy += 14;
+    snprintf(buf, sizeof(buf), "CRC-32C 0x%08X   Adler-32 0x%08X", crc, adl);
+    gui_gfx_draw_string(cx + 8, cy, buf, GUI_THEME_TEXT_MUTED);
+    cy += 22;
+
+    // Crypto benchmark bars (measured once at launch)
+    gui_gfx_draw_string(cx, cy, "Crypto throughput (measured):", GUI_THEME_SUCCESS);
+    cy += 16;
+    if (rd->have_bench) {
+        uint32_t mx = rd->bench.chacha20_mbs;
+        if (rd->bench.sha3_256_mbs > mx) mx = rd->bench.sha3_256_mbs;
+        if (rd->bench.aes128_mbs > mx)   mx = rd->bench.aes128_mbs;
+        rustlab_bar(cx + 4, cy, w, "ChaCha20", rd->bench.chacha20_mbs, mx, GUI_THEME_ACCENT);
+        cy += 16;
+        rustlab_bar(cx + 4, cy, w, "SHA3-256", rd->bench.sha3_256_mbs, mx, GUI_THEME_SUCCESS);
+        cy += 16;
+        rustlab_bar(cx + 4, cy, w, "AES-128", rd->bench.aes128_mbs, mx, GUI_THEME_WARNING);
+        cy += 16;
+        snprintf(buf, sizeof(buf), "Composite score: %u", rd->bench.score);
+        gui_gfx_draw_string(cx + 4, cy, buf, GUI_THEME_TEXT_DIM);
+        cy += 22;
+    } else {
+        gui_gfx_draw_string(cx + 4, cy, "benchmark unavailable", GUI_THEME_TEXT_DIM);
+        cy += 22;
+    }
+
+    // Live CSPRNG entropy, refreshed periodically
+    if ((rd->frame++ % 20) == 0) {
+        rust_csprng_get_random(rd->entropy, sizeof(rd->entropy));
+    }
+    gui_gfx_draw_string(cx, cy, "ChaCha20 CSPRNG stream:", GUI_THEME_SUCCESS);
+    cy += 14;
+    snprintf(buf, sizeof(buf), "%02X %02X %02X %02X %02X %02X %02X %02X",
+             rd->entropy[0], rd->entropy[1], rd->entropy[2], rd->entropy[3],
+             rd->entropy[4], rd->entropy[5], rd->entropy[6], rd->entropy[7]);
+    gui_gfx_draw_string(cx + 8, cy, buf, GUI_THEME_PRIMARY);
+}
+
+static void rustlab_event(gui_window_t* win, const gui_event_t* ev) {
+    if (ev->type == GUI_EVENT_CLOSE && win->user_data) {
+        kfree(win->user_data);
+        win->user_data = NULL;
+    }
+}
+
+void gui_app_rustlab_launch(int x, int y, int w, int h) {
+    gui_window_t* win = gui_wm_create_window("Rust Lab", x, y, (w > 0) ? w : 420, (h > 0) ? h : 300);
+    if (win) {
+        rustlab_data_t* rd = (rustlab_data_t*)kzalloc(sizeof(rustlab_data_t));
+        if (rd) {
+            rd->have_bench = (rust_crypto_run_benchmark(&rd->bench) == 0);
+            rust_csprng_get_random(rd->entropy, sizeof(rd->entropy));
+        }
+        win->user_data = rd;
+        win->paint = rustlab_paint;
+        win->handle_event = rustlab_event;
+    }
+}

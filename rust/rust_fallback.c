@@ -251,3 +251,33 @@ uint64_t rust_fnv1a64(const uint8_t* data, size_t len) {
     }
     return hash;
 }
+
+// --- RLE codec (C fallback, mirrors rust/src/compress/mod.rs) ---
+int rust_rle_compress(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out) {
+    if (!in_buf || !out_buf) return -1;
+    size_t out = 0, i = 0;
+    while (i < in_len) {
+        uint8_t value = in_buf[i];
+        size_t run = 1;
+        while (i + run < in_len && in_buf[i + run] == value && run < 255) run++;
+        if (out + 2 > max_out) return -1;
+        out_buf[out++] = (uint8_t)run;
+        out_buf[out++] = value;
+        i += run;
+    }
+    return (int)out;
+}
+
+int rust_rle_decompress(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out) {
+    if (!in_buf || !out_buf) return -1;
+    size_t out = 0, i = 0;
+    while (i + 1 < in_len) {
+        size_t run = in_buf[i];
+        uint8_t value = in_buf[i + 1];
+        if (run == 0) return -1;
+        if (out + run > max_out) return -1;
+        for (size_t k = 0; k < run; k++) out_buf[out++] = value;
+        i += 2;
+    }
+    return (int)out;
+}

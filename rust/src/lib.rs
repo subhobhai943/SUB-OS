@@ -9,6 +9,7 @@ pub mod printk;
 pub mod drivers;
 pub mod crypto;
 pub mod checksum;
+pub mod compress;
 pub mod fs;
 pub mod kernel;
 pub mod storage;

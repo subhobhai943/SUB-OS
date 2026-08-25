@@ -76,6 +76,10 @@ uint32_t rust_crc32c(const uint8_t* data, size_t len);
 uint32_t rust_adler32(const uint8_t* data, size_t len);
 uint64_t rust_fnv1a64(const uint8_t* data, size_t len);
 
+// Run-Length Encoding Codec (Rust). Return bytes written, or -1.
+int rust_rle_compress(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out);
+int rust_rle_decompress(const uint8_t* in_buf, size_t in_len, uint8_t* out_buf, size_t max_out);
+
 // Cryptography
 int rust_chacha20_crypt(const uint8_t* key, const uint8_t* nonce, uint32_t counter, uint8_t* data, size_t len);
 int rust_csprng_get_random(uint8_t* buffer, size_t len);

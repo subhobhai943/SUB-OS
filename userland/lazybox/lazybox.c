@@ -482,6 +482,31 @@ static int applet_cksum(int argc, char** argv) {
     return 0;
 }
 
+static int applet_rle(int argc, char** argv) {
+    const char* str = (argc >= 2) ? argv[1] : "aaaaabbbccccccccd";
+    size_t len = strlen(str);
+
+    uint8_t comp[512];
+    uint8_t back[512];
+    int clen = rust_rle_compress((const uint8_t*)str, len, comp, sizeof(comp));
+    if (clen < 0) {
+        printk(KERN_ERR "rle: input too large for the demo buffer\n");
+        return 1;
+    }
+    int dlen = rust_rle_decompress(comp, (size_t)clen, back, sizeof(back));
+
+    bool ok = (dlen == (int)len) && (memcmp(back, str, len) == 0);
+    int ratio = (len > 0) ? (clen * 100) / (int)len : 0;
+
+    printk(ANSI_BRIGHT_CYAN "Rust RLE codec" ANSI_RESET " (run-length encoding):\n");
+    printk("  Input      : \"%s\"\n", str);
+    printk("  Original   : %llu bytes\n", (unsigned long long)len);
+    printk("  Compressed : %d bytes (%d%% of original)\n", clen, ratio);
+    printk("  Round-trip : %s\n", ok ? ANSI_BRIGHT_GREEN "OK (lossless)" ANSI_RESET
+                                     : ANSI_BRIGHT_RED "MISMATCH" ANSI_RESET);
+    return ok ? 0 : 1;
+}
+
 static int applet_rand(int argc, char** argv) {
     int count = (argc >= 2) ? atoi(argv[1]) : 4;
     printk("Random Integers: ");
@@ -2190,6 +2215,7 @@ static const lazybox_applet_t applets[] = {
     {"sha256sum",     applet_sha256sum,     "sha256sum <file|text>",     "Compute SHA-256 hash",       "Crypto"},
     {"crc32",         applet_crc32,         "crc32 <text>",              "Calculate CRC32 checksum",   "Crypto"},
     {"cksum",         applet_cksum,         "cksum <text>",              "Rust CRC-32C/Adler-32/FNV",  "Crypto"},
+    {"rle",           applet_rle,           "rle <text>",                "Rust RLE compress round-trip","Crypto"},
     {"rand",          applet_rand,          "rand [count]",              "Generate random numbers",    "Crypto"},
     {"certcheck",     applet_certcheck,     "certcheck",                 "View X.509 kernel keyring",  "Security"},
     {"capsh",         applet_capsh,         "capsh",                     "View process capabilities",  "Security"},
