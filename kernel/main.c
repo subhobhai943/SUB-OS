@@ -83,6 +83,7 @@
 #include <kernel/rust.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
+#include <kernel/cpp_analytics.h>
 #include <net/filter.h>
 #include <net/http.h>
 #include <net/ssh.h>
@@ -200,6 +201,7 @@ static void subos_modular_core_boot(void) {
     boot_logo_splash_progress(55, "Starting Rust, C++ and SUB-Lang engines");
     rust_kernel_init();
     cpp_kernel_init();
+    cpp_analytics_init();
     sub_kernel_init();
     prng_seed(0, 0);
     certs_init();

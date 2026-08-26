@@ -41,6 +41,7 @@
 #include <kernel/ktime.h>
 #include <kernel/sub_lang.h>
 #include <kernel/cpp_kernel.h>
+#include <kernel/cpp_analytics.h>
 #include <userland/snake.h>
 #include <ipc/shm_posix.h>
 #include <net/dns_cache.h>
@@ -1326,6 +1327,15 @@ static int applet_cppdevs(int argc, char** argv) {
 static int applet_cppbench(int argc, char** argv) {
     (void)argc; (void)argv;
     return cpp_run_benchmarks();
+}
+
+static int applet_cppstat(int argc, char** argv) {
+    int n = (argc >= 2) ? atoi(argv[1]) : 1;
+    if (n < 1) n = 1;
+    if (n > 32) n = 32;
+    for (int i = 0; i < n; i++) cpp_analytics_sample();
+    cpp_analytics_dump();
+    return 0;
 }
 
 static int applet_shm(int argc, char** argv) {
@@ -2629,6 +2639,7 @@ static const lazybox_applet_t applets[] = {
     {"cpptest",       applet_cpptest,       "cpptest",                   "C++ polymorphism & new/del", "System"},
     {"cppdevs",       applet_cppdevs,       "cppdevs",                   "C++ OOP device tree",        "System"},
     {"cppbench",      applet_cppbench,      "cppbench",                  "C++ OOP benchmark suite",    "System"},
+    {"cppstat",       applet_cppstat,       "cppstat [samples]",         "C++ analytics engine stats", "System"},
     {"shm",           applet_shm,           "shm",                       "POSIX /dev/shm shared memory", "System"},
     {"dnscache",      applet_dnscache,      "dnscache [-f]",             "DNS resolver cache & metrics", "Network"},
     {"beep",          applet_beep,          "beep [freq/jingle] [ms]",   "PC speaker & HDA tone synth", "Sound"},

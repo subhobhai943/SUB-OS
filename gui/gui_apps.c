@@ -13,6 +13,8 @@
 #include <kernel/nt/reg.h>
 #include <lib/string.h>
 #include <lib/printf.h>
+#include <kernel/cpp_analytics.h>
+#include <kernel/ktime.h>
 
 static int simple_atoi(const char* s) {
     if (!s) return 0;
@@ -886,5 +888,169 @@ void gui_app_regedit_launch(int x, int y, int w, int h) {
         win->user_data = rd;
         win->paint = regedit_paint;
         win->handle_event = regedit_event;
+    }
+}
+
+// =================================================================
+// 12. Analytics -- live charts backed by the C++ Analytics Engine
+// =================================================================
+typedef struct {
+    uint64_t last_sample_ns;   // throttle: pull a new sample ~2 Hz
+    int      selected;         // -1 = grid overview, else single-channel focus
+} analytics_data_t;
+
+#define ANALYTICS_SAMPLE_INTERVAL_NS 500000000ULL // 0.5s
+
+static uint32_t analytics_channel_color(int ch) {
+    switch (ch) {
+        case 0: return GUI_THEME_PRIMARY;  // CPU
+        case 1: return GUI_THEME_ACCENT;   // Memory
+        case 2: return GUI_THEME_WARNING;  // Heap
+        case 3: return GUI_THEME_SUCCESS;  // Network
+        default: return GUI_THEME_TEXT_MUTED;
+    }
+}
+
+// Draw one channel's line graph inside the rectangle (gx,gy,gw,gh).
+static void analytics_draw_graph(int ch, int gx, int gy, int gw, int gh, bool detailed) {
+    uint32_t color = analytics_channel_color(ch);
+
+    // Panel background + border
+    gui_gfx_fill_rect(gx, gy, gw, gh, GUI_THEME_BG_DARK);
+    gui_gfx_draw_rect(gx, gy, gw, gh, GUI_THEME_BORDER);
+
+    // Header: name + last value
+    uint32_t mn, mx, avg, last, sd;
+    cpp_analytics_get_stats(ch, &mn, &mx, &avg, &last, &sd);
+    uint32_t scale = cpp_analytics_channel_scale(ch);
+    if (scale == 0) scale = 1;
+
+    char hdr[48];
+    snprintf(hdr, sizeof(hdr), "%s", cpp_analytics_channel_name(ch));
+    gui_gfx_draw_string(gx + 6, gy + 5, hdr, color);
+    char val[24];
+    snprintf(val, sizeof(val), "%u%s", last, cpp_analytics_channel_unit(ch));
+    gui_gfx_draw_string(gx + gw - 8 * (int)strlen(val) - 6, gy + 5, val, GUI_THEME_TEXT_MAIN);
+
+    // Plot area
+    int px = gx + 6;
+    int py = gy + 20;
+    int pw = gw - 12;
+    int ph = gh - (detailed ? 40 : 34);
+    if (ph < 8) ph = 8;
+
+    // Horizontal gridlines (25/50/75%)
+    for (int g = 1; g < 4; g++) {
+        int gyl = py + (ph * g) / 4;
+        gui_gfx_draw_line(px, gyl, px + pw, gyl, GUI_THEME_BG_ELEVATED);
+    }
+
+    // Fetch the series and draw it as a connected line with a soft fill.
+    uint32_t series[CPP_ANALYTICS_HISTORY];
+    int n = cpp_analytics_get_series(ch, series, CPP_ANALYTICS_HISTORY);
+    if (n >= 1) {
+        int prev_x = 0, prev_y = 0;
+        for (int i = 0; i < n; i++) {
+            int x = px + (n > 1 ? (pw * i) / (n - 1) : pw);
+            uint32_t v = series[i];
+            if (v > scale) v = scale;
+            int y = py + ph - (int)(((uint64_t)v * ph) / scale);
+            // vertical fill to baseline
+            gui_gfx_draw_line(x, y, x, py + ph, (color & 0x00FFFFFF) | 0x30000000);
+            if (i > 0) gui_gfx_draw_line(prev_x, prev_y, x, y, color);
+            prev_x = x; prev_y = y;
+        }
+    }
+
+    // Footer stats
+    char foot[64];
+    if (detailed) {
+        snprintf(foot, sizeof(foot), "min %u  avg %u  max %u  sd %u", mn, avg, mx, sd);
+    } else {
+        snprintf(foot, sizeof(foot), "min %u  avg %u  max %u", mn, avg, mx);
+    }
+    gui_gfx_draw_string(gx + 6, gy + gh - 12, foot, GUI_THEME_TEXT_DIM);
+}
+
+static void analytics_paint(gui_window_t* win) {
+    analytics_data_t* ad = (analytics_data_t*)win->user_data;
+    if (!ad) return;
+
+    // Throttled live sampling driven by the compositor's repaint cadence.
+    uint64_t now = ktime_ns();
+    if (now - ad->last_sample_ns >= ANALYTICS_SAMPLE_INTERVAL_NS) {
+        cpp_analytics_sample();
+        ad->last_sample_ns = now;
+    }
+
+    int cx  = win->x + 10;
+    int top = win->y + GUI_TITLEBAR_HEIGHT + 4;
+
+    char title[72];
+    snprintf(title, sizeof(title), "C++ Analytics Engine   %llu samples",
+             (unsigned long long)cpp_analytics_sample_count());
+    gui_gfx_draw_string_16_shadow(cx, top, title, GUI_THEME_PRIMARY, GUI_COLOR_BLACK);
+    gui_gfx_draw_string(cx, top + 20, "Templated time-series + Observer pattern (kernel/cpp)", GUI_THEME_TEXT_MUTED);
+
+    int grid_top = top + 38;
+    int nch = cpp_analytics_channel_count();
+
+    if (ad->selected >= 0 && ad->selected < nch) {
+        // Focused single-channel view.
+        analytics_draw_graph(ad->selected, cx, grid_top,
+                             win->width - 20, win->height - (grid_top - win->y) - 10, true);
+        gui_gfx_draw_string(cx + 6, win->y + win->height - 12,
+                            "(click to return to overview)", GUI_THEME_TEXT_DIM);
+    } else {
+        // 2x2 overview grid.
+        int gw = (win->width - 20 - 8) / 2;
+        int gh = (win->height - (grid_top - win->y) - 10 - 8) / 2;
+        if (gw < 60) gw = 60;
+        if (gh < 40) gh = 40;
+        for (int i = 0; i < nch && i < 4; i++) {
+            int col = i % 2, row = i / 2;
+            analytics_draw_graph(i, cx + col * (gw + 8), grid_top + row * (gh + 8), gw, gh, false);
+        }
+    }
+}
+
+static void analytics_event(gui_window_t* win, const gui_event_t* ev) {
+    analytics_data_t* ad = (analytics_data_t*)win->user_data;
+    if (!ad) return;
+
+    if (ev->type == GUI_EVENT_CLOSE) {
+        if (win->user_data) { kfree(win->user_data); win->user_data = NULL; }
+        return;
+    }
+    if (ev->type != GUI_EVENT_MOUSE_DOWN) return;
+
+    if (ad->selected >= 0) {
+        ad->selected = -1; // any click leaves focus mode
+        return;
+    }
+    // Overview: figure out which quadrant was clicked and focus it.
+    int grid_top_rel = GUI_TITLEBAR_HEIGHT + 4 + 38;
+    int gw = (win->width - 20 - 8) / 2;
+    int gh = (win->height - grid_top_rel - 10 - 8) / 2;
+    if (gw < 1 || gh < 1) return;
+    int rx = ev->rel_x - 10;
+    int ry = ev->rel_y - grid_top_rel;
+    if (rx < 0 || ry < 0) return;
+    int col = rx / (gw + 8);
+    int row = ry / (gh + 8);
+    if (col > 1) col = 1;
+    if (row > 1) row = 1;
+    int idx = row * 2 + col;
+    if (idx >= 0 && idx < cpp_analytics_channel_count()) ad->selected = idx;
+}
+
+void gui_app_analytics_launch(int x, int y, int w, int h) {
+    gui_window_t* win = gui_wm_create_window("Analytics", x, y, (w > 0) ? w : 560, (h > 0) ? h : 400);
+    if (win) {
+        analytics_data_t* ad = (analytics_data_t*)kzalloc(sizeof(analytics_data_t));
+        if (ad) { ad->selected = -1; ad->last_sample_ns = 0; }
+        win->user_data = ad;
+        win->paint = analytics_paint;
+        win->handle_event = analytics_event;
     }
 }

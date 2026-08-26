@@ -43,6 +43,89 @@ constexpr T&& forward(typename RemoveReference<T>::type&& arg) noexcept {
 }
 
 // -----------------------------------------------------------------------------
+// Freestanding numeric algorithms (namespaced to avoid clashing with the C
+// kmin/kmax macros/inlines the kernel exposes elsewhere).
+// -----------------------------------------------------------------------------
+template<typename T>
+constexpr const T& kmin(const T& a, const T& b) { return (a < b) ? a : b; }
+
+template<typename T>
+constexpr const T& kmax(const T& a, const T& b) { return (a > b) ? a : b; }
+
+template<typename T>
+constexpr const T& kclamp(const T& v, const T& lo, const T& hi) {
+    return (v < lo) ? lo : ((v > hi) ? hi : v);
+}
+
+template<typename T>
+constexpr void kswap(T& a, T& b) {
+    T tmp = move(a);
+    a = move(b);
+    b = move(tmp);
+}
+
+// -----------------------------------------------------------------------------
+// Pair (Freestanding two-element tuple)
+// -----------------------------------------------------------------------------
+template<typename A, typename B>
+struct Pair {
+    A first;
+    B second;
+
+    constexpr Pair() : first(), second() {}
+    constexpr Pair(const A& a, const B& b) : first(a), second(b) {}
+};
+
+template<typename A, typename B>
+constexpr Pair<A, B> make_pair(const A& a, const B& b) { return Pair<A, B>(a, b); }
+
+// -----------------------------------------------------------------------------
+// Optional (Freestanding maybe-value, no heap)
+// -----------------------------------------------------------------------------
+template<typename T>
+class Optional {
+private:
+    alignas(T) unsigned char m_storage[sizeof(T)];
+    bool m_has;
+
+    T* ptr() { return reinterpret_cast<T*>(m_storage); }
+    const T* ptr() const { return reinterpret_cast<const T*>(m_storage); }
+
+public:
+    constexpr Optional() noexcept : m_has(false) {}
+
+    Optional(const T& value) : m_has(true) {
+        new (static_cast<void*>(m_storage)) T(value);
+    }
+
+    Optional(const Optional& other) : m_has(other.m_has) {
+        if (m_has) new (static_cast<void*>(m_storage)) T(*other.ptr());
+    }
+
+    ~Optional() { reset(); }
+
+    Optional& operator=(const Optional& other) {
+        if (this != &other) {
+            reset();
+            m_has = other.m_has;
+            if (m_has) new (static_cast<void*>(m_storage)) T(*other.ptr());
+        }
+        return *this;
+    }
+
+    void reset() {
+        if (m_has) { ptr()->~T(); m_has = false; }
+    }
+
+    bool has_value() const noexcept { return m_has; }
+    explicit operator bool() const noexcept { return m_has; }
+
+    T& value() { return *ptr(); }
+    const T& value() const { return *ptr(); }
+    T value_or(const T& fallback) const { return m_has ? *ptr() : fallback; }
+};
+
+// -----------------------------------------------------------------------------
 // UniquePtr (Freestanding Smart Pointer RAII)
 // -----------------------------------------------------------------------------
 template<typename T>

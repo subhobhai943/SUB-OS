@@ -13,5 +13,6 @@ void gui_app_life_launch(int x, int y, int w, int h);
 void gui_app_rustlab_launch(int x, int y, int w, int h);
 void gui_app_objbrowse_launch(int x, int y, int w, int h);
 void gui_app_regedit_launch(int x, int y, int w, int h);
+void gui_app_analytics_launch(int x, int y, int w, int h);
 
 #endif // _GUI_APPS_H
