@@ -31,6 +31,7 @@ typedef struct http_fetch {
     char     host[128];
     char     path[256];
     uint16_t port;
+    bool     tls;             // the URL asked for https, which we cannot speak
 
     // Result. `state` is the only field the requester may read while the fetch
     // is in flight; everything else is valid once state != RUNNING.
@@ -41,10 +42,11 @@ typedef struct http_fetch {
     int      len;             // bytes stored
     int      cap;             // buffer capacity
 
-    uint32_t ip;              // resolved peer address
+    uint32_t ip;              // resolved peer address (of the final hop)
     int      status_code;     // parsed HTTP status, 0 if not found
-    uint32_t elapsed_ms;      // wall time of the fetch
-    char     err[64];         // human-readable failure reason
+    uint32_t elapsed_ms;      // wall time of the whole fetch
+    int      redirects;       // number of 3xx hops followed
+    char     err[96];         // human-readable failure reason
 } http_fetch_t;
 
 // Start the worker thread. Call once at boot, after the TCP stack is up.

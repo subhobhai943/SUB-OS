@@ -8,6 +8,7 @@
 #include <net/udp.h>
 #include <net/tcp.h>
 #include <net/http_client.h>
+#include <kernel/sched.h>
 #include <net/socket.h>
 #include <drivers/e1000.h>
 #include <drivers/ata.h>
@@ -2488,6 +2489,86 @@ static int applet_webget(int argc, char** argv) {
     return 0;
 }
 
+// End-to-end connectivity check: link, address, gateway, DNS, and a real HTTP
+// fetch, each reported PASS/FAIL. This is the one-command answer to "is the
+// internet working?" -- it exercises every layer the stack depends on.
+static int applet_netcheck(int argc, char** argv) {
+    const char* probe = (argc >= 2) ? argv[1] : "example.com";
+
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Connectivity Check ===\n" ANSI_RESET);
+
+    #define OKMARK   ANSI_BRIGHT_GREEN "[ ok ]" ANSI_RESET
+    #define FAILMARK ANSI_BRIGHT_RED   "[fail]" ANSI_RESET
+
+    int failures = 0;
+
+    // 1. Physical link.
+    bool link = e1000_is_link_up();
+    printk("  %s  link       eth0 %s\n", link ? OKMARK : FAILMARK,
+           link ? "UP" : "DOWN");
+    if (!link) failures++;
+
+    // 2. Interface address.
+    net_if_t* nif = net_get_primary_if();
+    bool has_ip = nif && nif->ip != 0;
+    char ips[16], gws[16], dnss[16];
+    ip_to_str(nif ? nif->ip : 0, ips);
+    ip_to_str(nif ? nif->gateway : 0, gws);
+    ip_to_str(nif ? nif->dns : 0, dnss);
+    printk("  %s  address    %s  gw %s  dns %s\n", has_ip ? OKMARK : FAILMARK,
+           ips, gws, dnss);
+    if (!has_ip) failures++;
+
+    // 3. Gateway reachability (one quiet ping).
+    int recv = (nif && nif->gateway) ? net_ping(nif->gateway, 1, 1000) : 0;
+    printk("  %s  gateway    %s %s\n", recv > 0 ? OKMARK : FAILMARK, gws,
+           recv > 0 ? "reachable" : "no reply");
+    if (recv <= 0) failures++;
+
+    // 4. DNS resolution.
+    uint32_t rip = dns_resolve(probe);
+    char rips[16];
+    ip_to_str(rip, rips);
+    printk("  %s  dns        %s -> %s\n", rip ? OKMARK : FAILMARK, probe,
+           rip ? rips : "no answer");
+    if (!rip) failures++;
+
+    // 5. A real HTTP fetch, on the async worker, polled to completion.
+    char url[160];
+    snprintf(url, sizeof(url), "%s/", probe);
+    http_fetch_t* f = http_fetch_start(url, 8192);
+    if (!f) {
+        printk("  %s  http       could not start fetch\n", FAILMARK);
+        failures++;
+    } else {
+        uint64_t t0 = pit_get_ticks();
+        while (f->state == HTTP_STATE_RUNNING && (pit_get_ticks() - t0) < 1500) {
+            sched_yield();
+        }
+        if (f->state == HTTP_STATE_DONE && f->status_code > 0) {
+            printk("  %s  http       GET %s -> %d, %d bytes, %u ms%s\n", OKMARK,
+                   probe, f->status_code, f->len, f->elapsed_ms,
+                   f->redirects ? " (redirected)" : "");
+        } else {
+            printk("  %s  http       %s\n", FAILMARK,
+                   f->state == HTTP_STATE_ERROR ? f->err : "timed out");
+            failures++;
+        }
+        http_fetch_release(f);
+    }
+
+    if (failures == 0) {
+        printk(ANSI_BRIGHT_GREEN "\n  Internet: ONLINE -- all checks passed.\n" ANSI_RESET);
+    } else {
+        printk(ANSI_YELLOW "\n  Internet: DEGRADED -- %d check(s) failed.\n" ANSI_RESET,
+               failures);
+    }
+
+    #undef OKMARK
+    #undef FAILMARK
+    return failures == 0 ? 0 : 1;
+}
+
 // A minimal HTTP/1.0 client over the active-open path.
 static int applet_httpget(int argc, char** argv) {
     if (argc < 2) {
@@ -2860,6 +2941,7 @@ static const lazybox_applet_t applets[] = {
     {"tcpconnect",    applet_tcpconnect,    "tcpconnect <host> <port> [text]", "Open an outbound TCP stream", "Network"},
     {"httpget",       applet_httpget,       "httpget <host> [path] [port]",    "Fetch a URL over TCP",       "Network"},
     {"webget",        applet_webget,        "webget <url>",                    "Fetch a URL via the async worker", "Network"},
+    {"netcheck",      applet_netcheck,      "netcheck [host]",                 "End-to-end internet connectivity test", "Network"},
     {"tcpserve",      applet_tcpserve,      "tcpserve <port>",                 "Accept one inbound TCP stream", "Network"},
 
     // Storage & Devices

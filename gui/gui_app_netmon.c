@@ -26,6 +26,7 @@
 #include <net/tcp.h>
 #include <net/udp.h>
 #include <net/socket.h>
+#include <net/http_client.h>
 #include <drivers/e1000.h>
 
 #define NETMON_HISTORY   64
@@ -46,7 +47,56 @@ typedef struct {
     bool     primed;               // a baseline reading has been taken
 
     int      scroll;               // first connection row shown
+
+    // Internet reachability probe (async, via the HTTP worker).
+    http_fetch_t* probe;
+    int      inet_state;           // 0 unknown, 1 checking, 2 online, 3 offline
+    char     inet_detail[72];
+    bool     auto_checked;
 } netmon_data_t;
+
+#define INET_UNKNOWN  0
+#define INET_CHECKING 1
+#define INET_ONLINE   2
+#define INET_OFFLINE  3
+
+#define NETMON_PROBE_HOST "example.com/"   // a plain-HTTP host to reach for
+
+// Advance the reachability probe: collect a finished result, or note that one
+// is still in flight. Runs every paint; the fetch itself is on the worker.
+static void netmon_poll_probe(netmon_data_t* nd) {
+    if (!nd->probe) return;
+
+    int st = nd->probe->state;
+    if (st == HTTP_STATE_RUNNING) { nd->inet_state = INET_CHECKING; return; }
+
+    if (st == HTTP_STATE_DONE && nd->probe->status_code > 0) {
+        char ipx[16];
+        ip_to_str(nd->probe->ip, ipx);
+        nd->inet_state = INET_ONLINE;
+        snprintf(nd->inet_detail, sizeof(nd->inet_detail), "%s  HTTP %d  %u ms",
+                 ipx, nd->probe->status_code, nd->probe->elapsed_ms);
+    } else {
+        nd->inet_state = INET_OFFLINE;
+        snprintf(nd->inet_detail, sizeof(nd->inet_detail), "%s",
+                 st == HTTP_STATE_ERROR ? nd->probe->err : "no response");
+    }
+
+    http_fetch_release(nd->probe);
+    nd->probe = NULL;
+}
+
+static void netmon_start_probe(netmon_data_t* nd) {
+    if (nd->probe) return;                    // one in flight already
+    nd->probe = http_fetch_start(NETMON_PROBE_HOST, 4096);
+    if (nd->probe) {
+        nd->inet_state = INET_CHECKING;
+    } else {
+        // The single worker slot is busy (e.g. the Web app is fetching).
+        nd->inet_state = INET_UNKNOWN;
+        snprintf(nd->inet_detail, sizeof(nd->inet_detail), "worker busy, try again");
+    }
+}
 
 // ===========================================================================
 // Sampling
@@ -217,8 +267,32 @@ static void netmon_paint(gui_window_t* win) {
              (unsigned)tcp_get_connections_count(), tcp_get_listener_count());
     gui_label_aligned(0, row + 12, w - 12, buf, GUI_THEME_TEXT_MUTED, GUI_ALIGN_RIGHT);
 
+    // --- internet reachability -------------------------------------------
+    // Kick off one probe automatically the first time the window paints, then
+    // let the user re-check on demand. The fetch runs on the worker thread, so
+    // this stays responsive while a check is in flight.
+    if (!nd->auto_checked) { nd->auto_checked = true; netmon_start_probe(nd); }
+    netmon_poll_probe(nd);
+
+    int irow = row + 28;
+    static const char* const inet_labels[] = { "UNKNOWN", "checking...", "ONLINE", "OFFLINE" };
+    uint32_t inet_col = (nd->inet_state == INET_ONLINE)  ? GUI_THEME_SUCCESS
+                      : (nd->inet_state == INET_OFFLINE) ? GUI_THEME_DANGER
+                      : (nd->inet_state == INET_CHECKING)? GUI_THEME_WARNING
+                                                         : GUI_THEME_TEXT_DIM;
+    gui_label(10, irow, "Internet:", GUI_THEME_TEXT_MUTED);
+    gui_badge(84, irow - 1, inet_labels[nd->inet_state],
+              inet_col, GUI_COLOR_BLACK);
+    if (nd->inet_detail[0]) {
+        gui_label(150, irow, nd->inet_detail, GUI_THEME_TEXT_DIM);
+    }
+    if (gui_button(5, w - 82, irow - 3, 72, 18,
+                   nd->probe ? "checking" : "Check")) {
+        netmon_start_probe(nd);
+    }
+
     // --- connection table -------------------------------------------------
-    int tbl_y = row + 30;
+    int tbl_y = row + 46;
     gui_separator(10, tbl_y - 4, w - 20);
     gui_label_bold(10, tbl_y, "PROTO  LOCAL", GUI_THEME_TEXT_DIM);
     gui_label(w / 2 + 6, tbl_y, "REMOTE", GUI_THEME_TEXT_DIM);
@@ -306,7 +380,9 @@ static void netmon_event(gui_window_t* win, const gui_event_t* ev) {
     gui_widget_feed_event(win, ev);
 
     if (ev->type == GUI_EVENT_CLOSE && win->user_data) {
-        kfree(win->user_data);
+        netmon_data_t* nd = (netmon_data_t*)win->user_data;
+        if (nd->probe) http_fetch_release(nd->probe);   // safe mid-fetch
+        kfree(nd);
         win->user_data = NULL;
     }
 }
