@@ -2216,6 +2216,14 @@ static int applet_netstat(int argc, char** argv) {
         }
     }
 
+    // Ports claimed through tcp_listen (the general passive-open path).
+    for (int i = 0; i < tcp_get_listener_count(); i++) {
+        uint16_t lp = tcp_get_listener_port(i);
+        if (!lp) continue;
+        printk("tcp        0      0 0.0.0.0:%-5u           0.0.0.0:*               "
+               "LISTEN (%d queued)\n", lp, tcp_get_listener_backlog(i));
+    }
+
     // Live connections from the TCP engine's own table: inbound ones accepted
     // by a listener, outbound ones opened by tcp_connect.
     for (size_t i = 0; i < 32; i++) {
@@ -2271,8 +2279,9 @@ static int applet_sockstat(int argc, char** argv) {
         snprintf(rbuf, sizeof(rbuf), "%s:%u", ra, s->remote_port);
         const char* ty = (s->type == SOCK_DGRAM) ? "dgram" :
                          (s->type == SOCK_STREAM) ? "stream" : "raw";
-        printk("%-4d %-8s %-24s %-24s %s\n", i, ty, lbuf, rbuf,
-               s->state == 1 ? "CONNECTED" : "OPEN");
+        const char* st = (s->state == SOCK_STATE_CONNECTED) ? "CONNECTED" :
+                         (s->state == SOCK_STATE_LISTEN)    ? "LISTEN"    : "OPEN";
+        printk("%-4d %-8s %-24s %-24s %s\n", i, ty, lbuf, rbuf, st);
         shown++;
     }
     if (!shown) printk("  (no open sockets)\n");
@@ -2353,6 +2362,76 @@ static int applet_tcpconnect(int argc, char** argv) {
 
     printk("\n" ANSI_YELLOW "--- %d byte(s) received, closing ---\n" ANSI_RESET, total);
     tcp_close(c);
+    return 0;
+}
+
+// Listen on a port, take one connection, echo what the peer sends, and hang
+// up. This is the passive-open path end to end, through the BSD socket API
+// rather than the TCP engine directly: bind, listen, accept, recv, send, close.
+static int applet_tcpserve(int argc, char** argv) {
+    if (argc < 2) {
+        printk("usage: tcpserve <port> [seconds to wait]\n");
+        return 1;
+    }
+
+    uint16_t port = (uint16_t)atoi(argv[1]);
+    if (port == 0) {
+        printk(ANSI_BRIGHT_RED "tcpserve: invalid port '%s'\n" ANSI_RESET, argv[1]);
+        return 1;
+    }
+
+    int fd = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) {
+        printk(ANSI_BRIGHT_RED "tcpserve: no socket available\n" ANSI_RESET);
+        return 1;
+    }
+
+    sockaddr_in_t local;
+    memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_port   = htons(port);
+    local.sin_addr   = 0;   // all interfaces
+
+    if (sys_bind(fd, &local, sizeof(local)) != 0 || sys_listen(fd, 4) != 0) {
+        printk(ANSI_BRIGHT_RED "tcpserve: cannot listen on port %u "
+               "(already claimed?)\n" ANSI_RESET, port);
+        sys_close_socket(fd);
+        return 1;
+    }
+
+    printk(ANSI_BRIGHT_GREEN "Listening" ANSI_RESET " on 0.0.0.0:%u -- waiting for a "
+           "connection ...\n", port);
+
+    sockaddr_in_t peer;
+    size_t plen = sizeof(peer);
+    int cfd = sys_accept(fd, &peer, &plen);
+    if (cfd < 0) {
+        printk(ANSI_YELLOW "tcpserve: nobody connected; giving up\n" ANSI_RESET);
+        sys_close_socket(fd);
+        return 1;
+    }
+
+    char pip[16];
+    ip_to_str(peer.sin_addr, pip);
+    printk(ANSI_BRIGHT_GREEN "Accepted" ANSI_RESET " connection from %s:%u\n",
+           pip, ntohs(peer.sin_port));
+
+    char buf[513];
+    ssize_t n = sys_recv(cfd, buf, sizeof(buf) - 1, 0);
+    if (n > 0) {
+        buf[n] = '\0';
+        printk(ANSI_YELLOW "--- %d byte(s) received ---\n" ANSI_RESET, (int)n);
+        printk("%s\n", buf);
+
+        const char* reply = "SUB-OS accepted your connection. Goodbye.\r\n";
+        sys_send(cfd, reply, strlen(reply), 0);
+    } else {
+        printk(ANSI_YELLOW "tcpserve: peer sent nothing\n" ANSI_RESET);
+    }
+
+    sys_close_socket(cfd);
+    sys_close_socket(fd);
+    printk("Connection closed, port %u released.\n", port);
     return 0;
 }
 
@@ -2727,6 +2806,7 @@ static const lazybox_applet_t applets[] = {
     {"sockstat",      applet_sockstat,      "sockstat",                  "Socket table & UDP stats",   "Network"},
     {"tcpconnect",    applet_tcpconnect,    "tcpconnect <host> <port> [text]", "Open an outbound TCP stream", "Network"},
     {"httpget",       applet_httpget,       "httpget <host> [path] [port]",    "Fetch a URL over TCP",       "Network"},
+    {"tcpserve",      applet_tcpserve,      "tcpserve <port>",                 "Accept one inbound TCP stream", "Network"},
 
     // Storage & Devices
     {"lsblk",         applet_lsblk,         "lsblk",                     "List block storage devices", "Storage"},

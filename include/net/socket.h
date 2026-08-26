@@ -23,6 +23,11 @@ typedef struct sockaddr_in {
     char     sin_zero[8];
 } sockaddr_in_t;
 
+// Values for socket_t.state.
+#define SOCK_STATE_OPEN      0   // created, no peer or port committed yet
+#define SOCK_STATE_CONNECTED 1   // peer address known (and, for a stream, open)
+#define SOCK_STATE_LISTEN    2   // stream socket accepting inbound connections
+
 typedef struct socket {
     int domain;
     int type;
@@ -39,6 +44,12 @@ void socket_subsystem_init(void);
 int sys_socket(int domain, int type, int protocol);
 int sys_bind(int sockfd, const struct sockaddr_in* addr, size_t addrlen);
 int sys_connect(int sockfd, const struct sockaddr_in* addr, size_t addrlen);
+
+// Stream sockets only. sys_listen claims the bound port; sys_accept returns a
+// new socket descriptor for the next connection to complete its handshake, or
+// -1 if none arrives within the wait. `addr`, when given, receives the peer.
+int sys_listen(int sockfd, int backlog);
+int sys_accept(int sockfd, struct sockaddr_in* addr, size_t* addrlen);
 ssize_t sys_send(int sockfd, const void* buf, size_t len, int flags);
 ssize_t sys_recv(int sockfd, void* buf, size_t len, int flags);
 

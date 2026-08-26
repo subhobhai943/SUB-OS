@@ -314,12 +314,31 @@ static const char* g_icons[GUI_ICON_COUNT][GUI_ICON_SIZE] = {
         "0000000990000000",
         "0000000000000000",
         "0000000000000000",
+    },
+    // GUI_ICON_NETWORK
+    {
+        "0000000000000000",
+        "0000005555000000",
+        "0000556666550000",
+        "0005666556665000",
+        "0056666556666500",
+        "0555555555555550",
+        "0566666556666650",
+        "5666666556666665",
+        "5666666556666665",
+        "0566666556666650",
+        "0555555555555550",
+        "0056666556666500",
+        "0005666556665000",
+        "0000556666550000",
+        "0000005555000000",
+        "0000000000000000",
     },};
 
 static const char* g_icon_names[GUI_ICON_COUNT] = {
     "Terminal", "Monitor", "Folder", "Calculator", "Paint", "Info",
     "Settings", "Tasks", "Log", "Tests", "Clock", "File", "Power", "Warning",
-    "Heart"
+    "Heart", "Network"
 };
 
 static uint8_t hex_index(char c) {

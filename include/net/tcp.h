@@ -34,10 +34,17 @@ typedef struct {
     uint16_t urgent_pointer;
 } __attribute__((packed)) tcp_header_t;
 
-// Which end opened the connection. Server connections are created by an
-// inbound SYN to a listening service; client connections by tcp_connect().
-#define TCP_ROLE_SERVER 0
-#define TCP_ROLE_CLIENT 1
+// Which end opened the connection, and how it is serviced.
+//
+//   SERVICE  -- created by an inbound SYN to one of the built-in servers
+//               (sshd, httpd), which are answered inline from the receive
+//               path and never hand a stream back to a caller.
+//   CLIENT   -- opened by tcp_connect().
+//   ACCEPTED -- opened by a peer against a tcp_listen() port and handed to
+//               tcp_accept(). Carries a byte stream exactly like a CLIENT.
+#define TCP_ROLE_SERVICE  0
+#define TCP_ROLE_CLIENT   1
+#define TCP_ROLE_ACCEPTED 2
 
 #define TCP_RX_BUF_SIZE 4096
 #define TCP_MSS         1460
@@ -102,6 +109,31 @@ bool tcp_is_established(const tcp_conn_t* c);
 
 // True once the peer's FIN has been received, so no further data can arrive.
 bool tcp_peer_closed(const tcp_conn_t* c);
+
+// --- Passive open (server side) -----------------------------------------
+//
+// tcp_listen claims a port; inbound SYNs to it are completed by the receive
+// path and the finished connections queue up until tcp_accept collects them.
+// This is the general path: the built-in sshd and httpd predate it and are
+// still answered inline, so listening on their ports is not useful.
+
+#define TCP_MAX_LISTENERS 8
+#define TCP_BACKLOG_MAX   4
+
+// Returns 0 on success, -1 if the port is taken or the table is full.
+int  tcp_listen(uint16_t port, int backlog);
+
+// Collect the next established connection, waiting up to timeout_ms.
+// Returns NULL if none arrived. The caller owns it and must tcp_close it.
+tcp_conn_t* tcp_accept(uint16_t port, uint32_t timeout_ms);
+
+// Stop listening. Connections already accepted are unaffected; any still
+// waiting in the backlog are reset.
+void tcp_unlisten(uint16_t port);
+
+int      tcp_get_listener_count(void);
+uint16_t tcp_get_listener_port(int idx);
+int      tcp_get_listener_backlog(int idx);
 
 size_t tcp_get_connections_count(void);
 const tcp_conn_t* tcp_get_connection(size_t index);

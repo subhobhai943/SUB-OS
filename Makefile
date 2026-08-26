@@ -287,7 +287,7 @@ endif
 
 CONFIG_SRCS-y += gui/gui.c gui/gui_gfx.c gui/gui_cursor.c gui/gui_wm.c gui/gui_desktop.c gui/gui_apps.c \
                  gui/gui_widgets.c gui/gui_icons.c gui/gui_dialog.c gui/gui_apps_ext.c gui/gui_terminal.c \
-                 gui/gui_app_sorry.c
+                 gui/gui_app_sorry.c gui/gui_app_netmon.c
 
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))

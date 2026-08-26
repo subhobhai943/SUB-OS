@@ -20,6 +20,7 @@
 
 #define SOCK_CONNECT_TIMEOUT_MS 4000
 #define SOCK_RECV_TIMEOUT_MS    2000
+#define SOCK_ACCEPT_TIMEOUT_MS  5000
 
 typedef struct {
     uint32_t src_ip;
@@ -36,6 +37,7 @@ typedef struct {
     int      count;  // queued datagrams
     bool     bound;  // a UDP binding is installed for local_port
     tcp_conn_t* tcp; // stream sockets only: the connection sys_connect opened
+    bool     listening; // stream sockets only: a TCP listener holds local_port
 } sock_priv_t;
 
 static socket_t    socket_table[MAX_SOCKETS];
@@ -144,13 +146,54 @@ int sys_connect(int sockfd, const struct sockaddr_in* addr, size_t addrlen) {
         if (!pv->tcp) return -1;
         s->local_ip   = pv->tcp->local_ip;
         s->local_port = pv->tcp->local_port;
-        s->state = 1;
+        s->state = SOCK_STATE_CONNECTED;
         return 0;
     }
 
-    s->state = 1; // "connected" (address memorised for send/recv)
+    s->state = SOCK_STATE_CONNECTED; // address memorised for send/recv
     if (s->type == SOCK_DGRAM) return dgram_ensure_bound(sockfd);
     return 0;
+}
+
+int sys_listen(int sockfd, int backlog) {
+    if (!valid_fd(sockfd)) return -1;
+    socket_t* s = &socket_table[sockfd];
+    if (s->type != SOCK_STREAM || s->local_port == 0) return -1;
+
+    if (tcp_listen(s->local_port, backlog) != 0) return -1;
+    socket_priv[sockfd].listening = true;
+    s->state = SOCK_STATE_LISTEN;
+    return 0;
+}
+
+int sys_accept(int sockfd, struct sockaddr_in* addr, size_t* addrlen) {
+    if (!valid_fd(sockfd)) return -1;
+    socket_t* s = &socket_table[sockfd];
+    if (s->type != SOCK_STREAM || !socket_priv[sockfd].listening) return -1;
+
+    tcp_conn_t* c = tcp_accept(s->local_port, SOCK_ACCEPT_TIMEOUT_MS);
+    if (!c) return -1;
+
+    // The accepted connection needs a descriptor of its own; the listening
+    // socket keeps its port and stays available for the next caller.
+    int fd = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) { tcp_close(c); return -1; }
+
+    socket_t* ns = &socket_table[fd];
+    ns->local_ip    = c->local_ip;
+    ns->local_port  = c->local_port;
+    ns->remote_ip   = c->remote_ip;
+    ns->remote_port = c->remote_port;
+    ns->state       = SOCK_STATE_CONNECTED;
+    socket_priv[fd].tcp = c;
+
+    if (addr) {
+        addr->sin_family = AF_INET;
+        addr->sin_addr   = c->remote_ip;
+        addr->sin_port   = htons(c->remote_port);
+        if (addrlen) *addrlen = sizeof(struct sockaddr_in);
+    }
+    return fd;
 }
 
 ssize_t sys_sendto(int sockfd, const void* buf, size_t len, int flags,
@@ -164,7 +207,7 @@ ssize_t sys_sendto(int sockfd, const void* buf, size_t len, int flags,
     uint32_t dip;
     uint16_t dport;
     if (dest) { dip = dest->sin_addr; dport = ntohs(dest->sin_port); }
-    else if (s->state == 1) { dip = s->remote_ip; dport = s->remote_port; }
+    else if (s->state == SOCK_STATE_CONNECTED) { dip = s->remote_ip; dport = s->remote_port; }
     else return -1;
 
     if (dgram_ensure_bound(sockfd) != 0) return -1;
@@ -235,6 +278,7 @@ int sys_close_socket(int sockfd) {
     if (!valid_fd(sockfd)) return -1;
     socket_t* s = &socket_table[sockfd];
     sock_priv_t* pv = &socket_priv[sockfd];
+    if (pv->listening && s->local_port) tcp_unlisten(s->local_port);
     if (pv->tcp) tcp_close(pv->tcp);
     if (pv->bound && s->local_port) udp_unbind(s->local_port);
     memset(s, 0, sizeof(socket_t));

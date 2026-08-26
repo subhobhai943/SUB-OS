@@ -65,6 +65,7 @@ static const desktop_app_t g_apps[] = {
     { "Settings",   GUI_ICON_SETTINGS, gui_app_settings_launch, 160,  60, 400, 320 },
     { "Analytics",  GUI_ICON_MONITOR,  gui_app_analytics_launch,320,  70, 560, 400 },
     { "Sorry",      GUI_ICON_HEART,    gui_app_sorry_launch,    260,  60, 660, 470 },
+    { "Network",    GUI_ICON_NETWORK,  gui_app_netmon_launch,   300,  80, 560, 400 },
     { "About",      GUI_ICON_INFO,     gui_app_about_launch,    240, 140, 330, 170 },
 };
 #define APP_COUNT ((int)(sizeof(g_apps) / sizeof(g_apps[0])))
@@ -72,8 +73,8 @@ static const desktop_app_t g_apps[] = {
 // Which of the above appear on the desktop itself.
 // Indices into g_apps[]: Terminal, Files, Monitor, Kernel Log, KTest, Life,
 // Rust Lab, Settings, Analytics, Sorry. (Objects/RegEdit live in the start
-// menu.)
-static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15, 16 };
+// menu.) Network sits alongside them.
+static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15, 16, 17 };
 #define DESKTOP_ICON_COUNT ((int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0])))
 
 static bool g_start_menu_open   = false;

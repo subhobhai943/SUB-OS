@@ -48,6 +48,18 @@
 
 static tcp_conn_t tcp_connections[MAX_TCP_CONNS];
 
+// A claimed port, plus the connections whose handshakes have completed on it
+// and are waiting to be collected by tcp_accept.
+typedef struct {
+    uint16_t port;
+    bool     in_use;
+    int      backlog;
+    tcp_conn_t* queue[TCP_BACKLOG_MAX];
+    int      count;
+} tcp_listener_t;
+
+static tcp_listener_t tcp_listeners[TCP_MAX_LISTENERS];
+
 static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dst_ip, const tcp_header_t* tcp,
                              const void* payload, uint16_t payload_len) {
     uint16_t tcp_total_len = (uint16_t)(sizeof(tcp_header_t) + payload_len);
@@ -71,6 +83,7 @@ static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dst_ip, const tcp_header_
 
 void tcp_init(void) {
     memset(tcp_connections, 0, sizeof(tcp_connections));
+    memset(tcp_listeners, 0, sizeof(tcp_listeners));
     printk(KERN_INFO "NET: TCP state machine online (active + passive open)\n");
 }
 
@@ -201,10 +214,31 @@ static tcp_conn_t* alloc_conn_server(uint32_t r_ip, uint16_t r_port, uint16_t l_
     c->remote_ip   = r_ip;
     c->remote_port = r_port;
     c->local_port  = l_port;
-    c->role        = TCP_ROLE_SERVER;
+    c->role        = TCP_ROLE_SERVICE;
     c->state       = TCP_STATE_CLOSED;
     c->seq_num     = 1000;
     c->ack_num     = 0;
+    return c;
+}
+
+// A connection born from an inbound SYN on a listening port. It carries a
+// stream, so unlike the inline-service role it needs a receive buffer.
+static tcp_conn_t* alloc_conn_accepted(uint32_t r_ip, uint16_t r_port, uint16_t l_port) {
+    tcp_conn_t* c = alloc_conn();
+    if (!c) return NULL;
+
+    c->rx_buf = (uint8_t*)kzalloc(TCP_RX_BUF_SIZE);
+    if (!c->rx_buf) { conn_free(c); return NULL; }
+
+    net_if_t* netif = net_get_primary_if();
+    c->local_ip    = netif ? netif->ip : 0x0A00020F;
+    c->remote_ip   = r_ip;
+    c->remote_port = r_port;
+    c->local_port  = l_port;
+    c->role        = TCP_ROLE_ACCEPTED;
+    c->iss         = prng_rand32();
+    c->seq_num     = c->iss;
+    c->snd_una     = c->iss;
     return c;
 }
 
@@ -243,9 +277,36 @@ static uint16_t rx_append(tcp_conn_t* c, const uint8_t* data, uint16_t len) {
 }
 
 // ===========================================================================
-// Client state machine
+// Listener table
 // ===========================================================================
-static void tcp_client_input(tcp_conn_t* c, uint32_t seq, uint32_t ack, uint8_t flags,
+static tcp_listener_t* find_listener(uint16_t port) {
+    for (int i = 0; i < TCP_MAX_LISTENERS; i++) {
+        if (tcp_listeners[i].in_use && tcp_listeners[i].port == port) {
+            return &tcp_listeners[i];
+        }
+    }
+    return NULL;
+}
+
+// A handshake finished on a listening port: hand the connection to whoever is
+// in tcp_accept. If nobody has drained the backlog, the peer is refused rather
+// than left believing it has an open connection nobody will ever read.
+static void listener_enqueue(tcp_conn_t* c) {
+    tcp_listener_t* l = find_listener(c->local_port);
+    if (!l) return;
+
+    if (l->count >= l->backlog) {
+        tcp_tx(c, TCP_FLAG_RST, NULL, 0);
+        conn_free(c);
+        return;
+    }
+    l->queue[l->count++] = c;
+}
+
+// ===========================================================================
+// Stream state machine, shared by active opens and accepted connections
+// ===========================================================================
+static void tcp_stream_input(tcp_conn_t* c, uint32_t seq, uint32_t ack, uint8_t flags,
                              const uint8_t* payload, uint16_t payload_len) {
     if (flags & TCP_FLAG_RST) {
         c->reset = true;
@@ -275,15 +336,24 @@ static void tcp_client_input(tcp_conn_t* c, uint32_t seq, uint32_t ack, uint8_t 
         if ((flags & TCP_FLAG_ACK) && seq_ge(ack, c->iss + 1)) {
             c->snd_una = ack;
             c->state   = TCP_STATE_ESTABLISHED;
+            // A passive open is only complete now: this is the third leg of
+            // the handshake, so the connection can finally be handed out.
+            if (c->role == TCP_ROLE_ACCEPTED) listener_enqueue(c);
         }
         return;
     }
 
     if (c->state == TCP_STATE_CLOSED) return;
 
-    // A lingering connection only has to keep acknowledging a retransmitted FIN.
+    // A lingering connection only has to keep acknowledging the peer's FIN,
+    // whether it is a retransmission or the peer's first one arriving after we
+    // stopped waiting for it.
     if (c->state == TCP_STATE_TIME_WAIT) {
-        if (flags & TCP_FLAG_FIN) tcp_tx(c, TCP_FLAG_ACK, NULL, 0);
+        if (flags & TCP_FLAG_FIN) {
+            if (seq == c->ack_num) c->ack_num++;   // the FIN itself
+            c->peer_fin = true;
+            tcp_tx(c, TCP_FLAG_ACK, NULL, 0);
+        }
         return;
     }
 
@@ -401,6 +471,16 @@ static void tcp_server_input(tcp_conn_t* c, uint32_t src_ip, uint16_t src_port,
             tcp_send_packet(src_ip, dst_port, src_port, c->seq_num, c->ack_num,
                             TCP_FLAG_PSH | TCP_FLAG_ACK, resp, (uint16_t)rlen);
             c->seq_num += rlen;
+
+            // The response advertises "Connection: close", so honour it: send
+            // the FIN now and let the connection linger in TIME_WAIT until the
+            // reaper takes it. Without this every served request held its slot
+            // for good and the 32-entry table filled up after 32 hits.
+            tcp_send_packet(src_ip, dst_port, src_port, c->seq_num, c->ack_num,
+                            TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+            c->seq_num++;
+            c->state     = TCP_STATE_TIME_WAIT;
+            c->closed_at = pit_get_ticks();
         }
     }
 }
@@ -427,16 +507,36 @@ void tcp_receive(const uint8_t* packet, uint16_t length, uint32_t src_ip) {
     // 1. An established connection -- ours or a peer's -- owns this segment.
     tcp_conn_t* conn = find_conn(src_ip, src_port, dst_port);
     if (conn) {
-        if (conn->role == TCP_ROLE_CLIENT) {
-            tcp_client_input(conn, seq_num, ack_num, flags, payload, payload_len);
-        } else {
+        // Lingering is role-independent: whichever half opened the connection,
+        // all a TIME_WAIT entry owes the peer is an acknowledgement of its FIN.
+        if (conn->state == TCP_STATE_TIME_WAIT) {
+            tcp_stream_input(conn, seq_num, ack_num, flags, payload, payload_len);
+        } else if (conn->role == TCP_ROLE_SERVICE) {
             tcp_server_input(conn, src_ip, src_port, dst_port, seq_num, flags,
                              payload, payload_len);
+        } else {
+            tcp_stream_input(conn, seq_num, ack_num, flags, payload, payload_len);
         }
         return;
     }
 
-    // 2. Otherwise a listening service may want to accept it.
+    // 2. A SYN to a port someone called tcp_listen on starts a passive open.
+    //    Only a SYN may do so: anything else for an unknown 4-tuple is stale.
+    if ((flags & TCP_FLAG_SYN) && !(flags & TCP_FLAG_ACK) && find_listener(dst_port)) {
+        conn = alloc_conn_accepted(src_ip, src_port, dst_port);
+        if (conn) {
+            conn->ack_num = seq_num + 1;
+            conn->state   = TCP_STATE_SYN_RCVD;
+            tcp_tx_seq(conn, conn->iss, TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0);
+            conn->seq_num = conn->iss + 1;   // our SYN consumes a sequence number
+        } else {
+            tcp_send_packet(src_ip, dst_port, src_port, 0, seq_num + 1,
+                            TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0);
+        }
+        return;
+    }
+
+    // 3. Otherwise one of the built-in services may want it.
     bool is_ssh_port  = (dst_port == sshd_get_port() && sshd_is_running());
     bool is_http_port = (dst_port == 80 && httpd_is_running());
     if (is_ssh_port || is_http_port) {
@@ -596,6 +696,15 @@ void tcp_close(tcp_conn_t* c) {
         }
     }
 
+    // A close we started may not have finished inside that wait: the peer is
+    // entitled to take its time sending its own FIN. Falling into TIME_WAIT
+    // rather than freeing the slot means that late FIN gets acknowledged
+    // properly instead of being answered with a reset.
+    if (c->state == TCP_STATE_FIN_WAIT1 || c->state == TCP_STATE_FIN_WAIT2 ||
+        c->state == TCP_STATE_CLOSING) {
+        c->state = TCP_STATE_TIME_WAIT;
+    }
+
     if (c->state == TCP_STATE_TIME_WAIT) {
         // Hold the slot so a late duplicate cannot land on a new connection.
         // The receive buffer is not needed for that, so give it back now.
@@ -608,6 +717,83 @@ void tcp_close(tcp_conn_t* c) {
     conn_free(c);
 }
 
+// ===========================================================================
+// Passive open API
+// ===========================================================================
+int tcp_listen(uint16_t port, int backlog) {
+    if (port == 0) return -1;
+    if (find_listener(port)) return -1;         // already claimed
+    if (backlog < 1) backlog = 1;
+    if (backlog > TCP_BACKLOG_MAX) backlog = TCP_BACKLOG_MAX;
+
+    for (int i = 0; i < TCP_MAX_LISTENERS; i++) {
+        if (tcp_listeners[i].in_use) continue;
+        memset(&tcp_listeners[i], 0, sizeof(tcp_listener_t));
+        tcp_listeners[i].in_use  = true;
+        tcp_listeners[i].port    = port;
+        tcp_listeners[i].backlog = backlog;
+        return 0;
+    }
+    return -1;
+}
+
+tcp_conn_t* tcp_accept(uint16_t port, uint32_t timeout_ms) {
+    tcp_listener_t* l = find_listener(port);
+    if (!l) return NULL;
+
+    uint64_t t0   = pit_get_ticks();
+    uint64_t wait = ms_to_ticks(timeout_ms);
+
+    while (l->count == 0) {
+        if ((pit_get_ticks() - t0) >= wait) return NULL;
+        arch_halt();
+    }
+
+    tcp_conn_t* c = l->queue[0];
+    for (int i = 1; i < l->count; i++) l->queue[i - 1] = l->queue[i];
+    l->count--;
+    return c;
+}
+
+void tcp_unlisten(uint16_t port) {
+    tcp_listener_t* l = find_listener(port);
+    if (!l) return;
+
+    // Anything still queued was never handed to a reader, so refuse it rather
+    // than leaving the peer with a connection nobody owns.
+    for (int i = 0; i < l->count; i++) {
+        tcp_conn_t* c = l->queue[i];
+        if (!c || !c->in_use) continue;
+        tcp_tx(c, TCP_FLAG_RST, NULL, 0);
+        conn_free(c);
+    }
+    memset(l, 0, sizeof(*l));
+}
+
+int tcp_get_listener_count(void) {
+    int n = 0;
+    for (int i = 0; i < TCP_MAX_LISTENERS; i++) if (tcp_listeners[i].in_use) n++;
+    return n;
+}
+
+uint16_t tcp_get_listener_port(int idx) {
+    int n = 0;
+    for (int i = 0; i < TCP_MAX_LISTENERS; i++) {
+        if (!tcp_listeners[i].in_use) continue;
+        if (n++ == idx) return tcp_listeners[i].port;
+    }
+    return 0;
+}
+
+int tcp_get_listener_backlog(int idx) {
+    int n = 0;
+    for (int i = 0; i < TCP_MAX_LISTENERS; i++) {
+        if (!tcp_listeners[i].in_use) continue;
+        if (n++ == idx) return tcp_listeners[i].count;
+    }
+    return 0;
+}
+
 bool tcp_is_established(const tcp_conn_t* c) {
     return c && c->in_use && c->state == TCP_STATE_ESTABLISHED;
 }
@@ -617,6 +803,12 @@ bool tcp_peer_closed(const tcp_conn_t* c) {
 }
 
 size_t tcp_get_connections_count(void) {
+    // Expired TIME_WAIT slots are normally reclaimed when the next connection
+    // is allocated, which never happens if none follows. netstat and the
+    // Network Monitor poll this, so it doubles as the periodic tick that stops
+    // finished connections lingering in the table for good.
+    reap_time_wait();
+
     size_t count = 0;
     for (size_t i = 0; i < MAX_TCP_CONNS; i++) {
         if (tcp_connections[i].in_use) count++;
