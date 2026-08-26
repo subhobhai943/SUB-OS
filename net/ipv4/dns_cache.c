@@ -1,5 +1,11 @@
-// DNS Resolver Cache with TTL Management and Metrics for SUB-OS
+// DNS Resolver Cache with TTL Management and Metrics for SUB-OS.
+//
+// IPs are stored in the same convention as the rest of the network stack:
+// network byte order in memory (the first octet in the lowest byte), exactly as
+// produced by ip_parse() and consumed by ip_to_str(). Storing them any other
+// way would hand dns_resolve() callers a byte-swapped address.
 #include <net/dns_cache.h>
+#include <net/net.h>
 #include <lib/string.h>
 #include <lib/printf.h>
 #include <kernel/printk.h>
@@ -10,12 +16,12 @@ static uint64_t total_hits = 0;
 
 void dns_cache_init(void) {
     memset(dns_table, 0, sizeof(dns_table));
-    // Seed common local and well-known hosts
-    dns_cache_insert("localhost", 0x7F000001, 86400);            // 127.0.0.1
-    dns_cache_insert("gateway.local", 0x0A000202, 3600);         // 10.0.2.2
-    dns_cache_insert("dns.google", 0x08080808, 7200);            // 8.8.8.8
-    dns_cache_insert("one.one.one.one", 0x01010101, 7200);       // 1.1.1.1
-    dns_cache_insert("github.com", 0x8C527964, 300);             // 140.82.121.4
+    // Seed common local and well-known hosts (network byte order via ip_parse).
+    dns_cache_insert("localhost",       ip_parse("127.0.0.1"),     86400);
+    dns_cache_insert("gateway.local",   ip_parse("10.0.2.2"),      3600);
+    dns_cache_insert("dns.google",      ip_parse("8.8.8.8"),       7200);
+    dns_cache_insert("one.one.one.one", ip_parse("1.1.1.1"),       7200);
+    dns_cache_insert("github.com",      ip_parse("140.82.121.4"),  300);
 
     printk(KERN_INFO "DNS: High-performance DNS Cache table initialized (Capacity: %d)\n", DNS_CACHE_MAX_ENTRIES);
 }
@@ -63,7 +69,7 @@ void dns_cache_insert(const char* hostname, uint32_t ip, uint32_t ttl) {
 
 void dns_cache_flush(void) {
     memset(dns_table, 0, sizeof(dns_table));
-    dns_cache_insert("localhost", 0x7F000001, 86400);
+    dns_cache_insert("localhost", ip_parse("127.0.0.1"), 86400);
     printk(ANSI_YELLOW "DNS: Resolver cache flushed.\n" ANSI_RESET);
 }
 
@@ -78,11 +84,8 @@ void dns_cache_dump(void) {
 
     for (int i = 0; i < DNS_CACHE_MAX_ENTRIES; i++) {
         if (dns_table[i].active) {
-            uint32_t ip = dns_table[i].ip;
             char ip_str[20];
-            snprintf(ip_str, sizeof(ip_str), "%u.%u.%u.%u",
-                     (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
-                     (ip >> 8) & 0xFF, ip & 0xFF);
+            ip_to_str(dns_table[i].ip, ip_str);
 
             printk("%-28s  " ANSI_BRIGHT_YELLOW "%-16s" ANSI_RESET "  %8u  %8llu\n",
                    dns_table[i].hostname, ip_str,

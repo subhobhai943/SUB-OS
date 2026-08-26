@@ -41,6 +41,18 @@ int sys_bind(int sockfd, const struct sockaddr_in* addr, size_t addrlen);
 int sys_connect(int sockfd, const struct sockaddr_in* addr, size_t addrlen);
 ssize_t sys_send(int sockfd, const void* buf, size_t len, int flags);
 ssize_t sys_recv(int sockfd, void* buf, size_t len, int flags);
+
+// Address-carrying variants for connectionless (SOCK_DGRAM) use.
+ssize_t sys_sendto(int sockfd, const void* buf, size_t len, int flags,
+                   const struct sockaddr_in* dest, size_t addrlen);
+ssize_t sys_recvfrom(int sockfd, void* buf, size_t len, int flags,
+                     struct sockaddr_in* src, size_t* addrlen);
+
 int sys_close_socket(int sockfd);
+
+// Introspection for netstat / sockstat.
+int  socket_get_count(void);
+const socket_t* socket_get(int idx);
+void socket_get_stats(uint64_t* tx_dgrams, uint64_t* rx_dgrams, uint64_t* drops);
 
 #endif // _NET_SOCKET_H

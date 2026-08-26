@@ -1,5 +1,6 @@
 #include <net/net.h>
 #include <net/tcp.h>
+#include <net/udp.h>
 #include <net/filter.h>
 #include <drivers/e1000.h>
 #include <lib/string.h>
@@ -247,6 +248,8 @@ void net_receive(const uint8_t* packet, uint16_t length) {
                     net_handle_icmp(ip->src_ip, payload + ihl, payload_len - ihl);
                 } else if (ip->protocol == IP_PROTO_TCP) {
                     tcp_receive(payload + ihl, payload_len - ihl, ip->src_ip);
+                } else if (ip->protocol == IP_PROTO_UDP) {
+                    udp_receive(payload + ihl, payload_len - ihl, ip->src_ip);
                 }
             }
         }

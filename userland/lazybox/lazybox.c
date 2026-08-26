@@ -5,6 +5,9 @@
 #include <net/net.h>
 #include <net/dns.h>
 #include <net/dhcp.h>
+#include <net/udp.h>
+#include <net/tcp.h>
+#include <net/socket.h>
 #include <drivers/e1000.h>
 #include <drivers/ata.h>
 #include <drivers/tty.h>
@@ -882,16 +885,35 @@ static int applet_rmmod(int argc, char** argv) {
 
 static int applet_ifconfig(int argc, char** argv) {
     (void)argc; (void)argv;
+    net_if_t* nif = net_get_primary_if();
     uint8_t mac[6];
     e1000_get_mac(mac);
 
-    printk("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n");
-    printk("        inet 10.0.2.15  netmask 255.255.255.0  broadcast 10.0.2.2\n");
+    char ip[16], mask[16], gw[16], dns[16];
+    if (nif) {
+        ip_to_str(nif->ip, ip);
+        ip_to_str(nif->subnet, mask);
+        ip_to_str(nif->gateway, gw);
+        ip_to_str(nif->dns, dns);
+    } else {
+        strcpy(ip, "0.0.0.0"); strcpy(mask, "0.0.0.0");
+        strcpy(gw, "0.0.0.0"); strcpy(dns, "0.0.0.0");
+    }
+
+    printk("%s: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n",
+           nif ? nif->name : "eth0");
+    printk("        inet %s  netmask %s  gateway %s\n", ip, mask, gw);
+    printk("        nameserver %s\n", dns);
     printk("        ether %02x:%02x:%02x:%02x:%02x:%02x  txqueuelen 1000  (Ethernet)\n",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    printk("        RX packets 0  bytes 0\n");
-    printk("        TX packets 0  bytes 0\n");
+    printk("        RX packets %llu  bytes %llu\n",
+           e1000_get_rx_packets(), e1000_get_rx_bytes());
+    printk("        TX packets %llu  bytes %llu\n",
+           e1000_get_tx_packets(), e1000_get_tx_bytes());
     printk("        Link Status: %s\n", e1000_is_link_up() ? "UP" : "DOWN");
+
+    printk("\nlo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536\n");
+    printk("        inet 127.0.0.1  netmask 255.0.0.0\n");
     return 0;
 }
 
@@ -924,11 +946,20 @@ static int applet_dhclient(int argc, char** argv) {
 
 static int applet_nslookup(int argc, char** argv) {
     const char* host = (argc >= 2) ? argv[1] : "google.com";
+    net_if_t* nif = net_get_primary_if();
+    char srv[16];
+    ip_to_str(nif ? nif->dns : ip_parse("10.0.2.3"), srv);
+
     uint32_t ip = dns_resolve(host);
+    if (ip == 0) {
+        printk("Server:\t\t%s\nAddress:\t%s#53\n\n** server can't find %s: NXDOMAIN\n",
+               srv, srv, host);
+        return 1;
+    }
     char ip_buf[16];
     ip_to_str(ip, ip_buf);
-    printk("Server:         10.0.2.3\nAddress:        10.0.2.3#53\n\nNon-authoritative answer:\nName:   %s\nAddress: %s\n",
-           host, ip_buf);
+    printk("Server:\t\t%s\nAddress:\t%s#53\n\nNon-authoritative answer:\nName:\t%s\nAddress: %s\n",
+           srv, srv, host, ip_buf);
     return 0;
 }
 
@@ -2165,9 +2196,6 @@ static int applet_netstat(int argc, char** argv) {
     if (httpd_is_running()) {
         printk("tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN (httpd)\n");
     }
-    printk("udp        0      0 0.0.0.0:53              0.0.0.0:*               LISTEN (dns)\n");
-    printk("udp        0      0 0.0.0.0:68              0.0.0.0:*               ESTABLISHED (dhcp)\n");
-
     for (size_t i = 0; i < 8; i++) {
         const ssh_session_t* s = sshd_get_session(i);
         if (s && s->in_use) {
@@ -2177,6 +2205,55 @@ static int applet_netstat(int argc, char** argv) {
                    client_ip_str, s->client_port, s->username);
         }
     }
+
+    // Live UDP port bindings (DNS resolver, DHCP client, datagram sockets).
+    uint16_t ports[32];
+    int np = udp_get_bindings(ports, 32);
+    for (int i = 0; i < np; i++) {
+        const char* svc = "";
+        if (ports[i] == 53) svc = " (dns)";
+        else if (ports[i] == 68) svc = " (dhcp)";
+        else if (ports[i] >= 49152) svc = " (ephemeral)";
+        printk("udp        0      0 0.0.0.0:%-5u           0.0.0.0:*%s\n", ports[i], svc);
+    }
+
+    uint64_t urx, utx, udrop;
+    udp_get_stats(&urx, &utx, &udrop);
+    printk(ANSI_YELLOW "\nTransport statistics:\n" ANSI_RESET);
+    printk("  udp: %llu datagrams received, %llu sent, %llu dropped\n", urx, utx, udrop);
+    printk("  tcp: %u active connection(s)\n", (unsigned)tcp_get_connections_count());
+    return 0;
+}
+
+// Datagram socket table + UDP transport statistics.
+static int applet_sockstat(int argc, char** argv) {
+    (void)argc; (void)argv;
+    printk(ANSI_BRIGHT_CYAN "=== SUB-OS Socket Table ===\n" ANSI_RESET);
+    printk(ANSI_BOLD "%-4s %-8s %-24s %-24s %s\n" ANSI_RESET,
+           "FD", "TYPE", "LOCAL", "REMOTE", "STATE");
+
+    int shown = 0;
+    for (int i = 0; i < 32; i++) {
+        const socket_t* s = socket_get(i);
+        if (!s) continue;
+        char la[16], ra[16];
+        ip_to_str(s->local_ip, la);
+        ip_to_str(s->remote_ip, ra);
+        char lbuf[24], rbuf[24];
+        snprintf(lbuf, sizeof(lbuf), "%s:%u", la, s->local_port);
+        snprintf(rbuf, sizeof(rbuf), "%s:%u", ra, s->remote_port);
+        const char* ty = (s->type == SOCK_DGRAM) ? "dgram" :
+                         (s->type == SOCK_STREAM) ? "stream" : "raw";
+        printk("%-4d %-8s %-24s %-24s %s\n", i, ty, lbuf, rbuf,
+               s->state == 1 ? "CONNECTED" : "OPEN");
+        shown++;
+    }
+    if (!shown) printk("  (no open sockets)\n");
+
+    uint64_t tx, rx, drops;
+    socket_get_stats(&tx, &rx, &drops);
+    printk("\nSocket I/O: %llu datagrams sent, %llu received, %llu dropped\n",
+           tx, rx, drops);
     return 0;
 }
 
@@ -2495,6 +2572,7 @@ static const lazybox_applet_t applets[] = {
     {"nslookup",      applet_nslookup,      "nslookup <host>",           "Query DNS name servers",     "Network"},
     {"iptables",      applet_iptables,      "iptables",                  "Firewall packet filter rules","Network"},
     {"netstat",       applet_netstat,       "netstat",                   "Network port connections",   "Network"},
+    {"sockstat",      applet_sockstat,      "sockstat",                  "Socket table & UDP stats",   "Network"},
 
     // Storage & Devices
     {"lsblk",         applet_lsblk,         "lsblk",                     "List block storage devices", "Storage"},
