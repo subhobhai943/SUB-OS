@@ -227,7 +227,7 @@ endif
 
 # Network Subsystem
 ifeq ($(CONFIG_NET_STACK), y)
-    CONFIG_SRCS-y += net/core/net.c net/core/socket.c net/ipv4/tcp.c net/ipv4/udp.c net/ipv4/dhcp.c net/ipv4/dns.c net/ipv4/dns_cache.c
+    CONFIG_SRCS-y += net/core/net.c net/core/socket.c net/ipv4/tcp.c net/ipv4/udp.c net/ipv4/dhcp.c net/ipv4/dns.c net/ipv4/dns_cache.c net/http_client.c
 endif
 ifeq ($(CONFIG_NET_FILTER), y)
     CONFIG_SRCS-y += net/filter.c
@@ -287,7 +287,7 @@ endif
 
 CONFIG_SRCS-y += gui/gui.c gui/gui_gfx.c gui/gui_cursor.c gui/gui_wm.c gui/gui_desktop.c gui/gui_apps.c \
                  gui/gui_widgets.c gui/gui_icons.c gui/gui_dialog.c gui/gui_apps_ext.c gui/gui_terminal.c \
-                 gui/gui_app_sorry.c gui/gui_app_netmon.c
+                 gui/gui_app_sorry.c gui/gui_app_netmon.c gui/gui_app_web.c
 
 # Deduplicate
 CONFIG_SRCS-y := $(sort $(CONFIG_SRCS-y))

@@ -252,7 +252,7 @@ static void netmon_paint(gui_window_t* win) {
         shown++;
     }
 
-    for (size_t i = 0; i < 32; i++) {
+    for (int i = 0; i < tcp_conn_table_size(); i++) {
         const tcp_conn_t* c = tcp_get_connection(i);
         if (!c) continue;
         if (index++ < nd->scroll) continue;

@@ -7,6 +7,7 @@
 #include <lib/printf.h>
 #include <mm/kmalloc.h>
 #include <arch/arch.h>
+#include <kernel/sched.h>
 #include <kernel/printk.h>
 
 #define MAX_ARP_ENTRIES 16
@@ -321,7 +322,7 @@ int net_ping(uint32_t target_ip, uint32_t count, uint32_t timeout_ms) {
         if (wait_ticks == 0) wait_ticks = 100;
 
         while (!ping_received && (pit_get_ticks() - t_start < wait_ticks)) {
-            arch_halt();
+            net_wait();
         }
 
         if (ping_received && ping_id == p_id && ping_seq == seq) {
@@ -339,6 +340,15 @@ int net_ping(uint32_t target_ip, uint32_t count, uint32_t timeout_ms) {
     printk(KERN_INFO "%u packets transmitted, %d received, %u%% packet loss\n",
            count, received, ((count - received) * 100) / count);
     return received;
+}
+
+void net_wait(void) {
+    // A cooperative hand-off rather than a CPU halt: other runnable tasks get
+    // to run while this one blocks on the wire. If nothing else is runnable the
+    // scheduler returns immediately, so the enclosing timeout still bounds the
+    // wait. The NIC interrupt fills the receive path independently of which
+    // task holds the CPU, so yielding never delays packet delivery.
+    sched_yield();
 }
 
 void net_init(void) {

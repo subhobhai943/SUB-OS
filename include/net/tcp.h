@@ -139,4 +139,13 @@ size_t tcp_get_connections_count(void);
 const tcp_conn_t* tcp_get_connection(size_t index);
 const char* tcp_state_name(uint8_t state);
 
+// Size of the connection table, so callers iterate the right range rather than
+// a hardcoded constant.
+int tcp_conn_table_size(void);
+
+// Cumulative count of connections that have reached ESTABLISHED, and the
+// high-water mark of simultaneously-live table entries. Diagnostic.
+uint64_t tcp_get_total_opened(void);
+int      tcp_get_peak_connections(void);
+
 #endif // _NET_TCP_H

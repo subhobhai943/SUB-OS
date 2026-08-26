@@ -7,6 +7,7 @@
 #include <net/dhcp.h>
 #include <net/udp.h>
 #include <net/tcp.h>
+#include <net/http_client.h>
 #include <net/socket.h>
 #include <drivers/e1000.h>
 #include <drivers/ata.h>
@@ -2226,7 +2227,7 @@ static int applet_netstat(int argc, char** argv) {
 
     // Live connections from the TCP engine's own table: inbound ones accepted
     // by a listener, outbound ones opened by tcp_connect.
-    for (size_t i = 0; i < 32; i++) {
+    for (int i = 0; i < tcp_conn_table_size(); i++) {
         const tcp_conn_t* c = tcp_get_connection(i);
         if (!c) continue;
 
@@ -2256,7 +2257,10 @@ static int applet_netstat(int argc, char** argv) {
     udp_get_stats(&urx, &utx, &udrop);
     printk(ANSI_YELLOW "\nTransport statistics:\n" ANSI_RESET);
     printk("  udp: %llu datagrams received, %llu sent, %llu dropped\n", urx, utx, udrop);
-    printk("  tcp: %u active connection(s)\n", (unsigned)tcp_get_connections_count());
+    printk("  tcp: %u active, %llu served since boot, peak %d of %d slots\n",
+           (unsigned)tcp_get_connections_count(),
+           (unsigned long long)tcp_get_total_opened(),
+           tcp_get_peak_connections(), tcp_conn_table_size());
     return 0;
 }
 
@@ -2432,6 +2436,55 @@ static int applet_tcpserve(int argc, char** argv) {
     sys_close_socket(cfd);
     sys_close_socket(fd);
     printk("Connection closed, port %u released.\n", port);
+    return 0;
+}
+
+// Fetch a URL through the ASYNC client: the request runs on the kernel HTTP
+// worker thread while this applet just polls, exactly as the GUI Web app does.
+// It is the command-line counterpart to that app and the way to exercise the
+// worker path from a serial console.
+static int applet_webget(int argc, char** argv) {
+    if (argc < 2) {
+        printk("usage: webget <url>   (e.g. webget 10.0.2.2:8000/)\n");
+        return 1;
+    }
+
+    http_fetch_t* f = http_fetch_start(argv[1], 16384);
+    if (!f) {
+        printk(ANSI_BRIGHT_RED "webget: could not start (bad URL, or a fetch is "
+               "already running)\n" ANSI_RESET);
+        return 1;
+    }
+
+    printk("Fetching %s on the HTTP worker thread ...\n", argv[1]);
+
+    // Poll while the worker runs. Yielding hands it the CPU; a wall-clock guard
+    // stops us waiting forever if something wedges.
+    uint64_t t0 = pit_get_ticks();
+    while (f->state == HTTP_STATE_RUNNING && (pit_get_ticks() - t0) < 1500) {
+        sched_yield();
+    }
+
+    if (f->state == HTTP_STATE_RUNNING) {
+        printk(ANSI_YELLOW "webget: still running after 15s; giving up on the "
+               "poll (worker will clean up)\n" ANSI_RESET);
+        http_fetch_release(f);
+        return 1;
+    }
+
+    if (f->state == HTTP_STATE_ERROR) {
+        printk(ANSI_BRIGHT_RED "webget: %s\n" ANSI_RESET, f->err);
+        http_fetch_release(f);
+        return 1;
+    }
+
+    char ips[16];
+    ip_to_str(f->ip, ips);
+    printk(ANSI_BRIGHT_GREEN "HTTP %d" ANSI_RESET "  %d bytes  %u ms  from %s:%u (%s)\n",
+           f->status_code, f->len, f->elapsed_ms, f->host, f->port, ips);
+    printk("---\n%s\n---\n", f->buf);
+
+    http_fetch_release(f);
     return 0;
 }
 
@@ -2806,6 +2859,7 @@ static const lazybox_applet_t applets[] = {
     {"sockstat",      applet_sockstat,      "sockstat",                  "Socket table & UDP stats",   "Network"},
     {"tcpconnect",    applet_tcpconnect,    "tcpconnect <host> <port> [text]", "Open an outbound TCP stream", "Network"},
     {"httpget",       applet_httpget,       "httpget <host> [path] [port]",    "Fetch a URL over TCP",       "Network"},
+    {"webget",        applet_webget,        "webget <url>",                    "Fetch a URL via the async worker", "Network"},
     {"tcpserve",      applet_tcpserve,      "tcpserve <port>",                 "Accept one inbound TCP stream", "Network"},
 
     // Storage & Devices

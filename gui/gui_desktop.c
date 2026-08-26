@@ -25,6 +25,7 @@
 #include <drivers/rtc.h>
 #include <drivers/cpufreq.h>
 #include <kernel/ktime.h>
+#include <kernel/sched.h>
 #include <mm/pmm.h>
 #include <mm/kmalloc.h>
 #include <arch/arch.h>
@@ -66,6 +67,7 @@ static const desktop_app_t g_apps[] = {
     { "Analytics",  GUI_ICON_MONITOR,  gui_app_analytics_launch,320,  70, 560, 400 },
     { "Sorry",      GUI_ICON_HEART,    gui_app_sorry_launch,    260,  60, 660, 470 },
     { "Network",    GUI_ICON_NETWORK,  gui_app_netmon_launch,   300,  80, 560, 400 },
+    { "Web",        GUI_ICON_GLOBE,    gui_app_web_launch,      280,  70, 600, 420 },
     { "About",      GUI_ICON_INFO,     gui_app_about_launch,    240, 140, 330, 170 },
 };
 #define APP_COUNT ((int)(sizeof(g_apps) / sizeof(g_apps[0])))
@@ -74,7 +76,7 @@ static const desktop_app_t g_apps[] = {
 // Indices into g_apps[]: Terminal, Files, Monitor, Kernel Log, KTest, Life,
 // Rust Lab, Settings, Analytics, Sorry. (Objects/RegEdit live in the start
 // menu.) Network sits alongside them.
-static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15, 16, 17 };
+static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15, 16, 17, 18 };
 #define DESKTOP_ICON_COUNT ((int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0])))
 
 static bool g_start_menu_open   = false;
@@ -853,9 +855,13 @@ int gui_desktop_run(void) {
         g_prev_my = my;
 
         // --- 5. Pace to the 60 FPS budget -----------------------------------
-        uint64_t elapsed_us = ktime_us() - frame_start_us;
-        if (elapsed_us < FRAME_BUDGET_US) {
-            ktime_delay_us(FRAME_BUDGET_US - elapsed_us);
+        // Spend the slack yielding to other kernel threads rather than
+        // busy-spinning, so a background task -- the async HTTP worker behind
+        // the Web app above all -- makes progress while the desktop idles
+        // between frames. When nothing else is runnable each yield returns at
+        // once and this simply spins out the budget, exactly as before.
+        while (ktime_us() - frame_start_us < FRAME_BUDGET_US) {
+            sched_yield();
         }
 
         // Sample the frame rate roughly twice a second from the monotonic clock.

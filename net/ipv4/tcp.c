@@ -35,13 +35,20 @@
 #include <crypto/crypto.h>
 #include <arch/arch.h>
 
-#define MAX_TCP_CONNS 32
+#define MAX_TCP_CONNS 64
 
 // The timer tick is 100 Hz, so one tick is 10 ms.
 #define TCP_RTO_TICKS        50   // 500 ms retransmission timeout
 #define TCP_MAX_RETRIES       5
 #define TCP_CLOSE_TICKS      50   // how long tcp_close waits for the shutdown
 #define TCP_TIME_WAIT_TICKS 200   // 2 s; a deliberately shortened 2*MSL
+
+// A connection this end closed after serving one request (httpd/sshd) does not
+// need the full linger: we sent the FIN, the peer is expected to be a
+// short-lived client, and holding the slot for two seconds is what let a burst
+// of requests exhaust the table. A brief linger still absorbs a retransmitted
+// FIN while freeing the slot roughly ten times sooner.
+#define TCP_SVC_TIME_WAIT_TICKS 25   // 250 ms
 
 #define TCP_EPHEMERAL_LO 49152
 #define TCP_EPHEMERAL_HI 65535
@@ -59,6 +66,17 @@ typedef struct {
 } tcp_listener_t;
 
 static tcp_listener_t tcp_listeners[TCP_MAX_LISTENERS];
+
+// Cumulative connections that have reached ESTABLISHED, and the high-water mark
+// of simultaneously-live table entries. Diagnostic only.
+static uint64_t tcp_total_opened = 0;
+static int      tcp_peak_conns   = 0;
+
+static void tcp_note_peak(void) {
+    int live = 0;
+    for (size_t i = 0; i < MAX_TCP_CONNS; i++) if (tcp_connections[i].in_use) live++;
+    if (live > tcp_peak_conns) tcp_peak_conns = live;
+}
 
 static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dst_ip, const tcp_header_t* tcp,
                              const void* payload, uint16_t payload_len) {
@@ -175,10 +193,11 @@ static void reap_time_wait(void) {
     uint64_t now = pit_get_ticks();
     for (size_t i = 0; i < MAX_TCP_CONNS; i++) {
         tcp_conn_t* c = &tcp_connections[i];
-        if (c->in_use && c->state == TCP_STATE_TIME_WAIT &&
-            (now - c->closed_at) >= TCP_TIME_WAIT_TICKS) {
-            conn_free(c);
-        }
+        if (!c->in_use || c->state != TCP_STATE_TIME_WAIT) continue;
+
+        uint64_t linger = (c->role == TCP_ROLE_SERVICE)
+                        ? TCP_SVC_TIME_WAIT_TICKS : TCP_TIME_WAIT_TICKS;
+        if ((now - c->closed_at) >= linger) conn_free(c);
     }
 }
 
@@ -199,6 +218,7 @@ static tcp_conn_t* alloc_conn(void) {
         if (!tcp_connections[i].in_use) {
             memset(&tcp_connections[i], 0, sizeof(tcp_conn_t));
             tcp_connections[i].in_use = true;
+            tcp_note_peak();
             return &tcp_connections[i];
         }
     }
@@ -322,6 +342,7 @@ static void tcp_stream_input(tcp_conn_t* c, uint32_t seq, uint32_t ack, uint8_t 
             c->snd_una = ack;
             c->ack_num = seq + 1;
             c->state   = TCP_STATE_ESTABLISHED;
+            tcp_total_opened++;
             tcp_tx(c, TCP_FLAG_ACK, NULL, 0);
         } else if (flags & TCP_FLAG_SYN) {
             // Simultaneous open: both ends sent a SYN at once.
@@ -336,6 +357,7 @@ static void tcp_stream_input(tcp_conn_t* c, uint32_t seq, uint32_t ack, uint8_t 
         if ((flags & TCP_FLAG_ACK) && seq_ge(ack, c->iss + 1)) {
             c->snd_una = ack;
             c->state   = TCP_STATE_ESTABLISHED;
+            tcp_total_opened++;
             // A passive open is only complete now: this is the third leg of
             // the handshake, so the connection can finally be handed out.
             if (c->role == TCP_ROLE_ACCEPTED) listener_enqueue(c);
@@ -439,6 +461,7 @@ static void tcp_server_input(tcp_conn_t* c, uint32_t src_ip, uint16_t src_port,
 
     if (c->state == TCP_STATE_SYN_RCVD) {
         c->state = TCP_STATE_ESTABLISHED;
+        tcp_total_opened++;
         if (is_ssh_port && payload_len == 0) {
             const char* banner = SSH_BANNER;
             uint16_t blen = (uint16_t)strlen(banner);
@@ -596,7 +619,7 @@ tcp_conn_t* tcp_connect(uint32_t dst_ip, uint16_t dst_port, uint32_t timeout_ms)
             tcp_tx_seq(c, c->iss, TCP_FLAG_SYN, NULL, 0);
             last = pit_get_ticks();
         }
-        arch_halt();
+        net_wait();
     }
 
     conn_free(c);
@@ -629,7 +652,7 @@ int tcp_send(tcp_conn_t* c, const void* data, uint16_t len) {
             uint64_t t0 = pit_get_ticks();
             while ((pit_get_ticks() - t0) < TCP_RTO_TICKS) {
                 if (seq_ge(c->snd_una, seg_end) || c->reset) break;
-                arch_halt();
+                net_wait();
             }
 
             if (seq_ge(c->snd_una, seg_end)) break;
@@ -653,7 +676,7 @@ int tcp_recv(tcp_conn_t* c, void* buf, uint16_t len, uint32_t timeout_ms) {
         if (c->reset) return -1;
         if (c->peer_fin) return 0;                       // stream ended
         if ((pit_get_ticks() - t0) >= wait) return 0;     // nothing arrived
-        arch_halt();
+        net_wait();
     }
 
     uint16_t before = c->rx_count;
@@ -692,7 +715,7 @@ void tcp_close(tcp_conn_t* c) {
         while ((pit_get_ticks() - t0) < TCP_CLOSE_TICKS) {
             if (c->reset) break;
             if (c->state == TCP_STATE_CLOSED || c->state == TCP_STATE_TIME_WAIT) break;
-            arch_halt();
+            net_wait();
         }
     }
 
@@ -746,7 +769,7 @@ tcp_conn_t* tcp_accept(uint16_t port, uint32_t timeout_ms) {
 
     while (l->count == 0) {
         if ((pit_get_ticks() - t0) >= wait) return NULL;
-        arch_halt();
+        net_wait();
     }
 
     tcp_conn_t* c = l->queue[0];
@@ -820,6 +843,10 @@ const tcp_conn_t* tcp_get_connection(size_t index) {
     if (index >= MAX_TCP_CONNS || !tcp_connections[index].in_use) return NULL;
     return &tcp_connections[index];
 }
+
+int tcp_conn_table_size(void) { return MAX_TCP_CONNS; }
+uint64_t tcp_get_total_opened(void) { return tcp_total_opened; }
+int tcp_get_peak_connections(void) { return tcp_peak_conns; }
 
 const char* tcp_state_name(uint8_t state) {
     static const char* const names[] = {

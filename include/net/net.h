@@ -103,6 +103,15 @@ arp_entry_t* net_get_arp_table(int* count_out);
 uint32_t ip_parse(const char* ip_str);
 void ip_to_str(uint32_t ip, char* buf);
 
+// Yield the CPU once while blocked in a network wait loop (a handshake, a
+// receive, a ping reply). Inbound packets are delivered from the NIC interrupt
+// regardless of which task runs, so cooperatively handing the CPU to other
+// tasks -- the GUI compositor above all -- keeps the desktop live during a
+// fetch instead of freezing it for the duration. When the caller is the only
+// runnable task it returns at once, so a shell-context wait still just spins to
+// its timeout.
+void net_wait(void);
+
 // One's-complement checksum, summed a byte at a time so the loads cannot be
 // reordered around a caller's store into the buffer being summed, and so no
 // alignment is assumed of a packed header. Words are read big-endian;

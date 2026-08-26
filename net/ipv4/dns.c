@@ -163,7 +163,7 @@ uint32_t dns_resolve(const char* hostname) {
 
             uint64_t wait_ticks = DNS_TIMEOUT_MS / 10;
             while (!dns_reply_ready && (pit_get_ticks() - t0 < wait_ticks)) {
-                arch_halt();
+                net_wait();
             }
 
             if (dns_reply_ready && dns_reply_id == qid && dns_reply_ip != 0) {

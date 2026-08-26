@@ -66,6 +66,7 @@
 #include <net/tcp.h>
 #include <net/dhcp.h>
 #include <net/dns.h>
+#include <net/http_client.h>
 #include <net/dns_cache.h>
 #include <ipc/shm_posix.h>
 #include <sound/beep.h>
@@ -285,6 +286,25 @@ static void subos_modular_core_boot(void) {
      * threads are forced to share the CPU by the tick. Preemption is left armed
      * afterwards, so CPU-bound kernel threads are time-sliced from here on. */
     weave_preempt_selftest();
+
+    // The async HTTP client runs on its own kernel thread, which idles on hlt
+    // between fetches. It is started only now, once hardware interrupts are
+    // live -- earlier, and its first idle would hlt with no timer tick to wake
+    // it -- and after the deterministic scheduler self-tests, so it never joins
+    // their fixed thread set. Harmless with no NIC: a fetch then fails at
+    // connect. It stays dormant until the GUI Web app requests a page.
+    http_client_init();
+
+    // The rest of the system -- the login prompt, the shell, the GUI
+    // compositor -- has run on the pid-0 idle thread, which the scheduler
+    // neither preempts (sched_tick skips pid 0) nor requeues on a yield
+    // (weave_on is clear). That was fine while nothing else needed the CPU, but
+    // now a background worker (the async HTTP client) does. Joining the weave
+    // rotation makes this thread a first-class participant: a sched_yield from
+    // the compositor's idle slack requeues it and lets the worker run, and
+    // control comes straight back on the next rotation. Without this a yield
+    // here would switch away for good.
+    sched_join();
 #endif
 
     // Boot directly into the GUI Desktop unless emergency text mode is requested.
