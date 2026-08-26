@@ -32,6 +32,13 @@ bool gui_desktop_handle_click(int mx, int my);
 // Height of the area windows may occupy (screen minus taskbar).
 int  gui_desktop_workarea_height(void);
 
+// An app that animates continuously calls this from its paint routine to ask
+// for a full-rate recomposite instead of the ~10 Hz live-content heartbeat.
+// The request covers only the next frame, so it has to be renewed on every
+// paint; it therefore lapses by itself when the app stops animating or its
+// window closes, and the compositor goes straight back to idling cheaply.
+void gui_desktop_request_animation_frame(void);
+
 // Wallpaper grid overlay (also toggled from the desktop context menu).
 void gui_desktop_set_grid(bool on);
 bool gui_desktop_get_grid(void);

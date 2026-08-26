@@ -64,14 +64,16 @@ static const desktop_app_t g_apps[] = {
     { "Clock",      GUI_ICON_CLOCK,    gui_app_clock_launch,    460, 120, 280, 260 },
     { "Settings",   GUI_ICON_SETTINGS, gui_app_settings_launch, 160,  60, 400, 320 },
     { "Analytics",  GUI_ICON_MONITOR,  gui_app_analytics_launch,320,  70, 560, 400 },
+    { "Sorry",      GUI_ICON_HEART,    gui_app_sorry_launch,    260,  60, 660, 470 },
     { "About",      GUI_ICON_INFO,     gui_app_about_launch,    240, 140, 330, 170 },
 };
 #define APP_COUNT ((int)(sizeof(g_apps) / sizeof(g_apps[0])))
 
 // Which of the above appear on the desktop itself.
 // Indices into g_apps[]: Terminal, Files, Monitor, Kernel Log, KTest, Life,
-// Rust Lab, Settings, Analytics. (Objects/RegEdit live in the start menu.)
-static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15 };
+// Rust Lab, Settings, Analytics, Sorry. (Objects/RegEdit live in the start
+// menu.)
+static const int g_desktop_icons[] = { 0, 1, 2, 4, 5, 9, 10, 14, 15, 16 };
 #define DESKTOP_ICON_COUNT ((int)(sizeof(g_desktop_icons) / sizeof(g_desktop_icons[0])))
 
 static bool g_start_menu_open   = false;
@@ -89,6 +91,7 @@ static uint64_t g_fps_last_ms = 0;
 static uint64_t g_fps_last_frames = 0;
 static uint64_t g_last_scene_ms = 0; // last full scene recomposite (for heartbeat)
 static int      g_prev_mx = -1, g_prev_my = -1;
+static bool     g_anim_request = false; // an app asked for the next frame back
 
 // Target frame budget: 60 FPS == 16666 us. The compositor only repaints the
 // full scene when it is dirty; between times it just moves the cursor overlay,
@@ -536,6 +539,10 @@ void gui_desktop_close_menus(void) {
     g_context_menu_open = false;
 }
 
+void gui_desktop_request_animation_frame(void) {
+    g_anim_request = true;
+}
+
 void gui_desktop_request_exit(void) { g_desktop_running = false; }
 
 static void exit_confirm_cb(gui_dialog_result_t result, void* ctx) {
@@ -807,9 +814,16 @@ int gui_desktop_run(void) {
                            g_start_menu_open || g_context_menu_open ||
                            gui_dialog_is_open();
 
+        // Claim any animation request left by the previous frame's painters.
+        // Clearing it here means a request only survives while an app keeps
+        // renewing it from its paint routine.
+        bool animating = g_anim_request;
+        g_anim_request = false;
+
         // A full recomposite is needed when anything but the bare cursor moved;
         // otherwise we keep the retained scene and just slide the cursor overlay.
-        bool scene_dirty = wm_animating || interacting || heartbeat || (g_frames == 0);
+        bool scene_dirty = wm_animating || interacting || heartbeat || animating ||
+                           (g_frames == 0);
 
         if ((g_frames & 0x1F) == 0) sample_cpu_history();
 

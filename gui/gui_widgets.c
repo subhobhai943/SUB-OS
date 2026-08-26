@@ -164,7 +164,20 @@ void gui_badge(int x, int y, const char* text, uint32_t bg, uint32_t fg) {
 // Interactive controls
 // ===========================================================================
 
-bool gui_button_colored(int id, int x, int y, int w, int h, const char* label, uint32_t accent) {
+bool gui_hitzone(int id, int x, int y, int w, int h) {
+    if (!hit_test(x, y, w, h)) return false;
+
+    g_input.hot_id = id;
+    if (!g_input.mouse_clicked) return false;
+
+    g_input.mouse_clicked = false;   // Claim the click
+    g_input.active_id     = id;
+    return true;
+}
+
+bool gui_button_styled(int id, int x, int y, int w, int h, const char* label,
+                       uint32_t face, uint32_t face_hover, uint32_t face_press,
+                       uint32_t border, uint32_t text) {
     bool hovered = hit_test(x, y, w, h);
     bool pressed = hovered && g_input.mouse_down;
     bool clicked = false;
@@ -179,20 +192,25 @@ bool gui_button_colored(int id, int x, int y, int w, int h, const char* label, u
         }
     }
 
-    uint32_t face   = pressed ? GUI_THEME_BG_DARK
-                     : hovered ? GUI_THEME_BG_ELEVATED
-                     : GUI_THEME_BG_SURFACE;
-    uint32_t border = hovered ? accent : GUI_THEME_BORDER;
-
-    gui_gfx_fill_rect(SX(x), SY(y), w, h, face);
+    gui_gfx_fill_rect(SX(x), SY(y), w, h,
+                      pressed ? face_press : hovered ? face_hover : face);
     gui_gfx_draw_rect(SX(x), SY(y), w, h, border);
 
     // A pressed button shifts its label a pixel to sell the depression.
     int tx = x + (w - text_width(label)) / 2 + (pressed ? 1 : 0);
     int ty = y + (h - GUI_FONT_H) / 2 + (pressed ? 1 : 0);
-    gui_gfx_draw_string(SX(tx), SY(ty), label, hovered ? GUI_THEME_TEXT_MAIN : GUI_THEME_TEXT_MUTED);
+    gui_gfx_draw_string(SX(tx), SY(ty), label, text);
 
     return clicked;
+}
+
+bool gui_button_colored(int id, int x, int y, int w, int h, const char* label, uint32_t accent) {
+    bool hovered = hit_test(x, y, w, h);
+
+    return gui_button_styled(id, x, y, w, h, label,
+                             GUI_THEME_BG_SURFACE, GUI_THEME_BG_ELEVATED, GUI_THEME_BG_DARK,
+                             hovered ? accent : GUI_THEME_BORDER,
+                             hovered ? GUI_THEME_TEXT_MAIN : GUI_THEME_TEXT_MUTED);
 }
 
 bool gui_button(int id, int x, int y, int w, int h, const char* label) {

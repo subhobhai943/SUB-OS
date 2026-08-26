@@ -295,11 +295,31 @@ static const char* g_icons[GUI_ICON_COUNT][GUI_ICON_SIZE] = {
         "8811118811118800",
         "8888888888888888",
         "8888888888888888",
+    },
+    // GUI_ICON_HEART
+    {
+        "0000000000000000",
+        "0009BB9009BB9000",
+        "009BBBB99BBBB900",
+        "09BBBBBBBBBBBB90",
+        "09BB2BBBBBBBBB90",
+        "09B22BBBBBBBBB90",
+        "09BB2BBBBBBBBB90",
+        "09BBBBBBBBBBBB90",
+        "009BBBBBBBBBB900",
+        "0009BBBBBBBB9000",
+        "00009BBBBBB90000",
+        "000009BBBB900000",
+        "0000009BB9000000",
+        "0000000990000000",
+        "0000000000000000",
+        "0000000000000000",
     },};
 
 static const char* g_icon_names[GUI_ICON_COUNT] = {
     "Terminal", "Monitor", "Folder", "Calculator", "Paint", "Info",
-    "Settings", "Tasks", "Log", "Tests", "Clock", "File", "Power", "Warning"
+    "Settings", "Tasks", "Log", "Tests", "Clock", "File", "Power", "Warning",
+    "Heart"
 };
 
 static uint8_t hex_index(char c) {

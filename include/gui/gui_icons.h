@@ -25,6 +25,7 @@ typedef enum {
     GUI_ICON_FILE,
     GUI_ICON_POWER,
     GUI_ICON_WARNING,
+    GUI_ICON_HEART,
     GUI_ICON_COUNT
 } gui_icon_id_t;
 

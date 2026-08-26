@@ -75,6 +75,18 @@ void gui_badge(int x, int y, const char* text, uint32_t bg, uint32_t fg);
 // within one window.
 bool gui_button(int id, int x, int y, int w, int h, const char* label);
 bool gui_button_colored(int id, int x, int y, int w, int h, const char* label, uint32_t accent);
+
+// Fully styled variant, for apps that paint their own palette instead of
+// inheriting the desktop's slate theme. The three faces cover the idle,
+// hovered and pressed states.
+bool gui_button_styled(int id, int x, int y, int w, int h, const char* label,
+                       uint32_t face, uint32_t face_hover, uint32_t face_press,
+                       uint32_t border, uint32_t text);
+
+// Claims a click inside a rectangle without drawing anything, so an app can
+// make a custom-drawn region clickable. Place it after the real controls: a
+// widget only ever sees a click no earlier widget already claimed.
+bool gui_hitzone(int id, int x, int y, int w, int h);
 bool gui_checkbox(int id, int x, int y, const char* label, bool* value);
 bool gui_radio(int id, int x, int y, const char* label, int* selected, int this_value);
 bool gui_slider(int id, int x, int y, int w, int* value, int min_val, int max_val);
