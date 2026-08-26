@@ -2216,6 +2216,23 @@ static int applet_netstat(int argc, char** argv) {
         }
     }
 
+    // Live connections from the TCP engine's own table: inbound ones accepted
+    // by a listener, outbound ones opened by tcp_connect.
+    for (size_t i = 0; i < 32; i++) {
+        const tcp_conn_t* c = tcp_get_connection(i);
+        if (!c) continue;
+
+        char lip[16], rip[16], laddr[24], raddr[24];
+        ip_to_str(c->local_ip, lip);
+        ip_to_str(c->remote_ip, rip);
+        snprintf(laddr, sizeof(laddr), "%s:%u", lip, c->local_port);
+        snprintf(raddr, sizeof(raddr), "%s:%u", rip, c->remote_port);
+
+        printk("tcp   %6u      0 %-23s %-23s %s%s\n",
+               c->rx_count, laddr, raddr, tcp_state_name(c->state),
+               c->role == TCP_ROLE_CLIENT ? " (out)" : " (in)");
+    }
+
     // Live UDP port bindings (DNS resolver, DHCP client, datagram sockets).
     uint16_t ports[32];
     int np = udp_get_bindings(ports, 32);
@@ -2264,6 +2281,131 @@ static int applet_sockstat(int argc, char** argv) {
     socket_get_stats(&tx, &rx, &drops);
     printk("\nSocket I/O: %llu datagrams sent, %llu received, %llu dropped\n",
            tx, rx, drops);
+    return 0;
+}
+
+// Resolve a host argument that may be either a dotted quad or a name.
+static uint32_t resolve_host_arg(const char* s) {
+    uint32_t ip = ip_parse(s);
+    if (ip != 0) return ip;
+    return dns_resolve(s);
+}
+
+// Open a TCP connection the way a client does, optionally push a line, and
+// print whatever the peer sends back. This is the active-open path end to end:
+// handshake, stream write, stream read, orderly close.
+static int applet_tcpconnect(int argc, char** argv) {
+    if (argc < 3) {
+        printk("usage: tcpconnect <host|ip> <port> [text to send]\n");
+        return 1;
+    }
+
+    uint32_t ip = resolve_host_arg(argv[1]);
+    if (ip == 0) {
+        printk(ANSI_BRIGHT_RED "tcpconnect: cannot resolve %s\n" ANSI_RESET, argv[1]);
+        return 1;
+    }
+
+    uint16_t port = (uint16_t)atoi(argv[2]);
+    if (port == 0) {
+        printk(ANSI_BRIGHT_RED "tcpconnect: invalid port '%s'\n" ANSI_RESET, argv[2]);
+        return 1;
+    }
+
+    char ipstr[16];
+    ip_to_str(ip, ipstr);
+    printk("Connecting to %s:%u ...\n", ipstr, port);
+
+    tcp_conn_t* c = tcp_connect(ip, port, 4000);
+    if (!c) {
+        printk(ANSI_BRIGHT_RED "tcpconnect: connection to %s:%u failed "
+               "(no SYN-ACK, or refused)\n" ANSI_RESET, ipstr, port);
+        return 1;
+    }
+
+    printk(ANSI_BRIGHT_GREEN "Connected" ANSI_RESET " (local port %u, state %s)\n",
+           c->local_port, tcp_state_name(c->state));
+
+    if (argc >= 4) {
+        char line[256];
+        int n = 0;
+        for (int i = 3; i < argc && n < (int)sizeof(line) - 3; i++) {
+            if (i > 3) line[n++] = ' ';
+            const char* w = argv[i];
+            while (*w && n < (int)sizeof(line) - 3) line[n++] = *w++;
+        }
+        line[n++] = '\r';
+        line[n++] = '\n';
+
+        int sent = tcp_send(c, line, (uint16_t)n);
+        printk("Sent %d byte(s)\n", sent);
+    }
+
+    char buf[513];
+    int total = 0;
+    for (;;) {
+        int n = tcp_recv(c, buf, sizeof(buf) - 1, 1500);
+        if (n <= 0) break;
+        buf[n] = '\0';
+        printk("%s", buf);
+        total += n;
+    }
+
+    printk("\n" ANSI_YELLOW "--- %d byte(s) received, closing ---\n" ANSI_RESET, total);
+    tcp_close(c);
+    return 0;
+}
+
+// A minimal HTTP/1.0 client over the active-open path.
+static int applet_httpget(int argc, char** argv) {
+    if (argc < 2) {
+        printk("usage: httpget <host|ip> [path] [port]\n");
+        return 1;
+    }
+
+    const char* host = argv[1];
+    const char* path = (argc >= 3) ? argv[2] : "/";
+    uint16_t    port = (argc >= 4) ? (uint16_t)atoi(argv[3]) : 80;
+
+    uint32_t ip = resolve_host_arg(host);
+    if (ip == 0) {
+        printk(ANSI_BRIGHT_RED "httpget: cannot resolve %s\n" ANSI_RESET, host);
+        return 1;
+    }
+
+    char ipstr[16];
+    ip_to_str(ip, ipstr);
+    printk("GET http://%s%s  ->  %s:%u\n", host, path, ipstr, port);
+
+    tcp_conn_t* c = tcp_connect(ip, port, 4000);
+    if (!c) {
+        printk(ANSI_BRIGHT_RED "httpget: connection failed\n" ANSI_RESET);
+        return 1;
+    }
+
+    char req[320];
+    int rl = snprintf(req, sizeof(req),
+                      "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: SUB-OS/lazybox\r\n"
+                      "Connection: close\r\n\r\n", path, host);
+    if (tcp_send(c, req, (uint16_t)rl) < 0) {
+        printk(ANSI_BRIGHT_RED "httpget: send failed\n" ANSI_RESET);
+        tcp_close(c);
+        return 1;
+    }
+
+    char buf[513];
+    int total = 0;
+    for (;;) {
+        int n = tcp_recv(c, buf, sizeof(buf) - 1, 2000);
+        if (n <= 0) break;
+        buf[n] = '\0';
+        printk("%s", buf);
+        total += n;
+    }
+
+    printk("\n" ANSI_YELLOW "--- %d byte(s), %s ---\n" ANSI_RESET,
+           total, tcp_peer_closed(c) ? "server closed the stream" : "timed out");
+    tcp_close(c);
     return 0;
 }
 
@@ -2583,6 +2725,8 @@ static const lazybox_applet_t applets[] = {
     {"iptables",      applet_iptables,      "iptables",                  "Firewall packet filter rules","Network"},
     {"netstat",       applet_netstat,       "netstat",                   "Network port connections",   "Network"},
     {"sockstat",      applet_sockstat,      "sockstat",                  "Socket table & UDP stats",   "Network"},
+    {"tcpconnect",    applet_tcpconnect,    "tcpconnect <host> <port> [text]", "Open an outbound TCP stream", "Network"},
+    {"httpget",       applet_httpget,       "httpget <host> [path] [port]",    "Fetch a URL over TCP",       "Network"},
 
     // Storage & Devices
     {"lsblk",         applet_lsblk,         "lsblk",                     "List block storage devices", "Storage"},

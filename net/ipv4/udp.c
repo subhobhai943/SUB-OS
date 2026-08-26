@@ -41,29 +41,22 @@ static volatile uint64_t stat_drop = 0;
 static uint16_t udp_checksum(uint32_t src_ip, uint32_t dst_ip,
                              const udp_header_t* udp, const void* payload,
                              uint16_t payload_len) {
-    udp_pseudo_header_t ph;
-    ph.src_ip = src_ip;
-    ph.dst_ip = dst_ip;
-    ph.zero = 0;
-    ph.protocol = IP_PROTO_UDP;
-    ph.udp_len = htons((uint16_t)(sizeof(udp_header_t) + payload_len));
+    uint16_t udp_len = (uint16_t)(sizeof(udp_header_t) + payload_len);
+
+    // The pseudo-header, laid out explicitly rather than as a packed struct:
+    // src and dst already hold network order, so their bytes are summed as-is.
+    uint8_t tail[4] = {
+        0, IP_PROTO_UDP, (uint8_t)(udp_len >> 8), (uint8_t)(udp_len & 0xFF)
+    };
 
     uint32_t sum = 0;
-    const uint16_t* p = (const uint16_t*)&ph;
-    for (size_t i = 0; i < sizeof(ph) / 2; i++) sum += *p++;
+    sum = net_csum_add(sum, &src_ip, sizeof(src_ip));
+    sum = net_csum_add(sum, &dst_ip, sizeof(dst_ip));
+    sum = net_csum_add(sum, tail, sizeof(tail));
+    sum = net_csum_add(sum, udp, sizeof(udp_header_t));
+    if (payload && payload_len > 0) sum = net_csum_add(sum, payload, payload_len);
 
-    p = (const uint16_t*)udp;
-    for (size_t i = 0; i < sizeof(udp_header_t) / 2; i++) sum += *p++;
-
-    if (payload && payload_len > 0) {
-        p = (const uint16_t*)payload;
-        size_t len = payload_len;
-        while (len > 1) { sum += *p++; len -= 2; }
-        if (len > 0) sum += *(const uint8_t*)p;
-    }
-
-    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
-    uint16_t cksum = (uint16_t)(~sum);
+    uint16_t cksum = net_csum_finish(sum);
     // A zero checksum means "not computed" on the wire; send 0xFFFF instead.
     return cksum ? cksum : 0xFFFF;
 }
@@ -189,14 +182,8 @@ void udp_send_broadcast(uint16_t src_port, uint16_t dst_port,
     ip->src_ip = 0x00000000;
     ip->dst_ip = 0xFFFFFFFF;
 
-    // IPv4 header checksum.
-    {
-        uint32_t sum = 0;
-        const uint16_t* p = (const uint16_t*)ip;
-        for (size_t i = 0; i < sizeof(ip_header_t) / 2; i++) sum += *p++;
-        while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
-        ip->checksum = (uint16_t)(~sum);
-    }
+    // IPv4 header checksum, over the header just written (with checksum zero).
+    ip->checksum = net_checksum(ip, sizeof(ip_header_t));
 
     udp_header_t* udp = (udp_header_t*)(buf + sizeof(ip_header_t));
     udp->src_port = htons(src_port);

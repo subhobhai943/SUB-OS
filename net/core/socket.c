@@ -1,12 +1,15 @@
 // BSD-style socket layer for SUB-OS.
 //
-// Implements connectionless (SOCK_DGRAM) sockets on top of the UDP transport.
+// Implements connectionless (SOCK_DGRAM) sockets on top of the UDP transport
+// and connection-oriented (SOCK_STREAM) sockets on top of the TCP engine.
+//
 // Binding a datagram socket registers a UDP handler that appends inbound
 // datagrams to the socket's fixed-depth receive ring; sys_recv/sys_recvfrom pop
-// the oldest datagram. Stream (SOCK_STREAM) sockets are accepted and tracked so
-// the API is uniform, but their data path is served by the in-kernel TCP engine.
+// the oldest datagram. A stream socket instead holds a TCP connection opened by
+// sys_connect, and its send/recv calls carry a byte stream through that.
 #include <net/socket.h>
 #include <net/udp.h>
+#include <net/tcp.h>
 #include <net/net.h>
 #include <lib/string.h>
 #include <kernel/printk.h>
@@ -14,6 +17,9 @@
 #define MAX_SOCKETS   32
 #define RX_RING_DEPTH  8
 #define DGRAM_MAX   1472   // 1500 MTU - 20 IP - 8 UDP
+
+#define SOCK_CONNECT_TIMEOUT_MS 4000
+#define SOCK_RECV_TIMEOUT_MS    2000
 
 typedef struct {
     uint32_t src_ip;
@@ -29,6 +35,7 @@ typedef struct {
     int      head;   // next slot to read
     int      count;  // queued datagrams
     bool     bound;  // a UDP binding is installed for local_port
+    tcp_conn_t* tcp; // stream sockets only: the connection sys_connect opened
 } sock_priv_t;
 
 static socket_t    socket_table[MAX_SOCKETS];
@@ -125,8 +132,22 @@ int sys_connect(int sockfd, const struct sockaddr_in* addr, size_t addrlen) {
     (void)addrlen;
     if (!valid_fd(sockfd) || !addr) return -1;
     socket_t* s = &socket_table[sockfd];
+    sock_priv_t* pv = &socket_priv[sockfd];
     s->remote_ip = addr->sin_addr;
     s->remote_port = ntohs(addr->sin_port);
+
+    // A stream socket really connects: the call returns only once the
+    // three-way handshake has completed, or fails on timeout.
+    if (s->type == SOCK_STREAM) {
+        if (pv->tcp) return 0;   // already connected
+        pv->tcp = tcp_connect(s->remote_ip, s->remote_port, SOCK_CONNECT_TIMEOUT_MS);
+        if (!pv->tcp) return -1;
+        s->local_ip   = pv->tcp->local_ip;
+        s->local_port = pv->tcp->local_port;
+        s->state = 1;
+        return 0;
+    }
+
     s->state = 1; // "connected" (address memorised for send/recv)
     if (s->type == SOCK_DGRAM) return dgram_ensure_bound(sockfd);
     return 0;
@@ -153,6 +174,18 @@ ssize_t sys_sendto(int sockfd, const void* buf, size_t len, int flags,
 }
 
 ssize_t sys_send(int sockfd, const void* buf, size_t len, int flags) {
+    if (!valid_fd(sockfd) || !buf) return -1;
+    socket_t* s = &socket_table[sockfd];
+
+    if (s->type == SOCK_STREAM) {
+        sock_priv_t* pv = &socket_priv[sockfd];
+        if (!pv->tcp) return -1;   // not connected
+        if (len > 0xFFFF) len = 0xFFFF;
+        int n = tcp_send(pv->tcp, buf, (uint16_t)len);
+        if (n > 0) stat_tx++;
+        return (n < 0) ? -1 : (ssize_t)n;
+    }
+
     return sys_sendto(sockfd, buf, len, flags, NULL, 0);
 }
 
@@ -183,6 +216,18 @@ ssize_t sys_recvfrom(int sockfd, void* buf, size_t len, int flags,
 }
 
 ssize_t sys_recv(int sockfd, void* buf, size_t len, int flags) {
+    if (!valid_fd(sockfd) || !buf) return -1;
+    socket_t* s = &socket_table[sockfd];
+
+    if (s->type == SOCK_STREAM) {
+        sock_priv_t* pv = &socket_priv[sockfd];
+        if (!pv->tcp) return -1;   // not connected
+        if (len > 0xFFFF) len = 0xFFFF;
+        int n = tcp_recv(pv->tcp, buf, (uint16_t)len, SOCK_RECV_TIMEOUT_MS);
+        if (n > 0) stat_rx++;
+        return (n < 0) ? -1 : (ssize_t)n;
+    }
+
     return sys_recvfrom(sockfd, buf, len, flags, NULL, NULL);
 }
 
@@ -190,6 +235,7 @@ int sys_close_socket(int sockfd) {
     if (!valid_fd(sockfd)) return -1;
     socket_t* s = &socket_table[sockfd];
     sock_priv_t* pv = &socket_priv[sockfd];
+    if (pv->tcp) tcp_close(pv->tcp);
     if (pv->bound && s->local_port) udp_unbind(s->local_port);
     memset(s, 0, sizeof(socket_t));
     memset(pv, 0, sizeof(sock_priv_t));

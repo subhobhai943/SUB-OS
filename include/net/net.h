@@ -102,6 +102,15 @@ arp_entry_t* net_get_arp_table(int* count_out);
 
 uint32_t ip_parse(const char* ip_str);
 void ip_to_str(uint32_t ip, char* buf);
+
+// One's-complement checksum, summed a byte at a time so the loads cannot be
+// reordered around a caller's store into the buffer being summed, and so no
+// alignment is assumed of a packed header. Words are read big-endian;
+// net_csum_finish returns the result already in network byte order, ready to
+// be assigned straight to a header's checksum field.
+uint32_t net_csum_add(uint32_t sum, const void* data, size_t len);
+uint16_t net_csum_finish(uint32_t sum);
+uint16_t net_checksum(const void* data, size_t len);
 void mac_to_str(const uint8_t* mac, char* buf);
 
 #endif // _NET_NET_H

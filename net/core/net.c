@@ -22,21 +22,41 @@ static volatile uint64_t ping_time = 0;
 
 static const uint8_t eth_broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-static uint16_t net_checksum(const void* data, size_t len) {
-    const uint16_t* ptr = (const uint16_t*)data;
-    uint32_t sum = 0;
+/*
+ * One's-complement checksum, accumulated a byte at a time.
+ *
+ * The byte-wise form is not just about portability. Reading through an
+ * unsigned char pointer may alias any object, so these loads cannot be
+ * reordered around a caller's `hdr->checksum = 0` store into the very buffer
+ * being summed. A word-at-a-time version is free to be reordered, and the TCP
+ * one was: it folded a stale checksum field into its own result and put a
+ * wrong checksum on every segment the kernel sent. It also drops the
+ * assumption that a packed header may be read as uint16_t, which is a fault
+ * rather than a slowdown on the ARM targets.
+ *
+ * Words are read big-endian, so the accumulator carries the checksum's true
+ * numeric value and it is converted to network order once, at the end.
+ */
+uint32_t net_csum_add(uint32_t sum, const void* data, size_t len) {
+    const uint8_t* p = (const uint8_t*)data;
 
     while (len > 1) {
-        sum += *ptr++;
+        sum += ((uint32_t)p[0] << 8) | (uint32_t)p[1];
+        p += 2;
         len -= 2;
     }
-    if (len > 0) {
-        sum += *(const uint8_t*)ptr;
-    }
-    while (sum >> 16) {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-    return (uint16_t)(~sum);
+    if (len) sum += (uint32_t)p[0] << 8;   // odd tail byte is the high half
+
+    return sum;
+}
+
+uint16_t net_csum_finish(uint32_t sum) {
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return htons((uint16_t)(~sum));
+}
+
+uint16_t net_checksum(const void* data, size_t len) {
+    return net_csum_finish(net_csum_add(0, data, len));
 }
 
 void ip_to_str(uint32_t ip, char* buf) {
@@ -235,6 +255,16 @@ void net_receive(const uint8_t* packet, uint16_t length) {
         if (payload_len >= sizeof(ip_header_t)) {
             const ip_header_t* ip = (const ip_header_t*)payload;
             uint8_t ihl = (ip->ihl_version & 0x0F) * 4;
+
+            /* Ethernet pads every frame out to 60 bytes, so the frame length
+             * overstates a short datagram. The IP header's own total_length is
+             * what says where the datagram really ends; without this trim the
+             * padding is handed to TCP/UDP/ICMP as protocol payload, which
+             * makes a bare ACK or FIN look like it carried several bytes and
+             * drags the acknowledgement number out of step with the peer. */
+            uint16_t ip_total = ntohs(ip->total_length);
+            if (ip_total >= ihl && ip_total < payload_len) payload_len = ip_total;
+
             if (payload_len >= ihl) {
                 // Dynamically learn sender's MAC address in ARP cache
                 arp_cache_insert(ip->src_ip, eth->src_mac);
