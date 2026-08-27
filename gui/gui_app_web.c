@@ -631,7 +631,7 @@ void gui_app_web_launch(int x, int y, int w, int h) {
     if (!wd->text) { kfree(wd); gui_wm_destroy_window(win->id); return; }
 
     wd->reader = true;
-    strcpy(wd->url, "10.0.2.2:8000/");   // the host, reachable under QEMU slirp
+    strcpy(wd->url, "https://example.com/"); // a real HTTPS page as the default
 
     win->user_data    = wd;
     win->paint        = web_paint;

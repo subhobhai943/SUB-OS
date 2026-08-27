@@ -131,7 +131,8 @@ CORE_SRCS = kernel/main.c kernel/task.c kernel/sync.c kernel/timer.c kernel/prin
             lib/string.c lib/vsprintf.c lib/bitmap.c lib/rbtree.c lib/kfifo.c lib/hashtable.c lib/font8x8.c \
             init/cmdline.c init/service.c init/bootlogo.c init/logo_data.c usr/initramfs.c block/block.c block/elevator.c \
             ipc/sem.c ipc/shm.c ipc/shm_posix.c ipc/pipe.c ipc/ipc.c ipc/msg.c \
-            crypto/sha256.c crypto/md5.c crypto/crc32.c crypto/prng.c sound/beep.c
+            crypto/sha256.c crypto/md5.c crypto/crc32.c crypto/prng.c \
+            crypto/x25519.c crypto/chacha20poly1305.c crypto/hkdf.c sound/beep.c
 
 # If no .config exists, default all core options to y
 ifeq ($(wildcard .config),)
@@ -227,7 +228,7 @@ endif
 
 # Network Subsystem
 ifeq ($(CONFIG_NET_STACK), y)
-    CONFIG_SRCS-y += net/core/net.c net/core/socket.c net/ipv4/tcp.c net/ipv4/udp.c net/ipv4/dhcp.c net/ipv4/dns.c net/ipv4/dns_cache.c net/http_client.c
+    CONFIG_SRCS-y += net/core/net.c net/core/socket.c net/ipv4/tcp.c net/ipv4/udp.c net/ipv4/dhcp.c net/ipv4/dns.c net/ipv4/dns_cache.c net/tls.c net/http_client.c
 endif
 ifeq ($(CONFIG_NET_FILTER), y)
     CONFIG_SRCS-y += net/filter.c

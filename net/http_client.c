@@ -14,6 +14,7 @@
  */
 #include <net/http_client.h>
 #include <net/tcp.h>
+#include <net/tls.h>
 #include <net/dns.h>
 #include <net/net.h>
 #include <mm/kmalloc.h>
@@ -142,13 +143,10 @@ static bool apply_redirect(http_fetch_t* f, const char* location) {
         snprintf(f->err, sizeof(f->err), "redirect to a URL we cannot parse");
         return false;
     }
-    if (https) {
-        snprintf(f->err, sizeof(f->err), "redirect to HTTPS (TLS unsupported): %s", host);
-        return false;
-    }
     strcpy(f->host, host);
     strcpy(f->path, path);
     f->port = port;
+    f->tls  = https;    // follow http->https upgrades; TLS handles it
     return true;
 }
 
@@ -176,8 +174,9 @@ static int parse_status(const char* buf, int len) {
 // ===========================================================================
 #define HTTP_MAX_REDIRECTS 5
 
-// Perform one request/response against the current host/path/port. Returns the
-// HTTP status code, or a negative error code; the raw response lands in f->buf.
+// Perform one request/response against the current host/path/port, over TLS
+// when the URL is https. Returns the HTTP status code, or a negative error
+// code; the raw response lands in f->buf.
 static int do_one_request(http_fetch_t* f) {
     f->ip = ip_parse(f->host);
     if (f->ip == 0) f->ip = dns_resolve(f->host);
@@ -186,33 +185,53 @@ static int do_one_request(http_fetch_t* f) {
         return -1;
     }
 
-    tcp_conn_t* c = tcp_connect(f->ip, f->port, HTTP_CONNECT_TIMEOUT_MS);
-    if (!c) {
-        snprintf(f->err, sizeof(f->err), "connect to %s:%u refused/timed out",
-                 f->host, f->port);
-        return -1;
-    }
-
     char req[512];
     int rl = snprintf(req, sizeof(req),
                       "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: SUB-OS/webfetch\r\n"
                       "Connection: close\r\n\r\n", f->path, f->host);
-    if (tcp_send(c, req, (uint16_t)rl) < 0) {
-        snprintf(f->err, sizeof(f->err), "send failed");
-        tcp_close(c);
-        return -1;
-    }
 
     f->len = 0;
-    while (f->len < f->cap - 1) {
-        int n = tcp_recv(c, f->buf + f->len, (uint16_t)(f->cap - 1 - f->len),
-                         HTTP_RECV_TIMEOUT_MS);
-        if (n <= 0) break;
-        f->len += n;
-    }
-    f->buf[f->len] = '\0';
-    tcp_close(c);
 
+    if (f->tls) {
+        tls_conn_t* c = tls_connect(f->host, f->ip, f->port, HTTP_CONNECT_TIMEOUT_MS);
+        if (!c) {
+            snprintf(f->err, sizeof(f->err), "TLS to %s:%u failed: %s",
+                     f->host, f->port, tls_last_error());
+            return -1;
+        }
+        if (tls_send(c, req, rl) < 0) {
+            snprintf(f->err, sizeof(f->err), "TLS send failed");
+            tls_close(c);
+            return -1;
+        }
+        while (f->len < f->cap - 1) {
+            int n = tls_recv(c, f->buf + f->len, f->cap - 1 - f->len, HTTP_RECV_TIMEOUT_MS);
+            if (n <= 0) break;
+            f->len += n;
+        }
+        tls_close(c);
+    } else {
+        tcp_conn_t* c = tcp_connect(f->ip, f->port, HTTP_CONNECT_TIMEOUT_MS);
+        if (!c) {
+            snprintf(f->err, sizeof(f->err), "connect to %s:%u refused/timed out",
+                     f->host, f->port);
+            return -1;
+        }
+        if (tcp_send(c, req, (uint16_t)rl) < 0) {
+            snprintf(f->err, sizeof(f->err), "send failed");
+            tcp_close(c);
+            return -1;
+        }
+        while (f->len < f->cap - 1) {
+            int n = tcp_recv(c, f->buf + f->len, (uint16_t)(f->cap - 1 - f->len),
+                             HTTP_RECV_TIMEOUT_MS);
+            if (n <= 0) break;
+            f->len += n;
+        }
+        tcp_close(c);
+    }
+
+    f->buf[f->len] = '\0';
     if (f->len == 0) {
         snprintf(f->err, sizeof(f->err), "no data received");
         return -1;
@@ -225,20 +244,12 @@ static int do_one_request(http_fetch_t* f) {
 // Returning the state keeps the job private to the worker until that hand-off.
 //
 // A 3xx response with a Location header is followed, up to a bounded number of
-// hops, so a real-world URL that redirects (a bare host to a path, http to a
-// canonical host) resolves to actual content. An https target is reported
-// rather than followed, since this client has no TLS.
+// hops, so a real-world URL that redirects (a bare host to a path, http to
+// https, a canonical host) resolves to actual content -- including the very
+// common http->https upgrade, now that TLS is available.
 static int do_fetch(http_fetch_t* f) {
     uint64_t t0 = pit_get_ticks();
     f->redirects = 0;
-
-    // The client has no TLS, so an https URL cannot be served. Say so plainly
-    // rather than sending a plaintext request to port 443 and reporting a
-    // confusing timeout.
-    if (f->tls) {
-        snprintf(f->err, sizeof(f->err), "%s is HTTPS; this client has no TLS", f->host);
-        return HTTP_STATE_ERROR;
-    }
 
     for (;;) {
         int status = do_one_request(f);
@@ -249,7 +260,7 @@ static int do_fetch(http_fetch_t* f) {
         char location[512];
         if (is_redirect && f->redirects < HTTP_MAX_REDIRECTS &&
             find_header(f->buf, f->len, "Location", location, sizeof(location))) {
-            if (!apply_redirect(f, location)) return HTTP_STATE_ERROR;  // e.g. HTTPS
+            if (!apply_redirect(f, location)) return HTTP_STATE_ERROR;
             f->redirects++;
             continue;
         }
