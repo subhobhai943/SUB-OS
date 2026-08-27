@@ -24,9 +24,10 @@
 #include <lib/printf.h>
 #include <net/http_client.h>
 #include <net/net.h>
+#include <lib/image.h>
 #include <drivers/keyboard.h>
 
-#define WEB_FETCH_CAP  16384   // response bytes retained
+#define WEB_FETCH_CAP  131072  // response bytes retained (fits images and long pages)
 #define WEB_MAX_LINES  2048    // rendered display lines retained
 #define WEB_MAX_LINKS  400     // hyperlinks tracked per page
 #define WEB_HREF_POOL  6144    // bytes of href strings per page
@@ -69,6 +70,11 @@ typedef struct {
     // Back stack of previously-visited URLs.
     char          hist[WEB_HISTORY][256];
     int           hist_len;
+
+    // When the response is an image, it is decoded once into here and shown
+    // instead of text.
+    bool          has_image;
+    image_t       image;
 
     const char*   cache_src;    // job->buf the cache was built from
     int           cache_len;
@@ -307,6 +313,25 @@ static void web_refresh_cache(web_data_t* wd, int cpl) {
     wd->base_path[sizeof(wd->base_path) - 1] = '\0';
     wd->base_port = j->port;
 
+    // If the body is an image, decode it once and show it instead of text.
+    if (wd->has_image) image_free(&wd->image);
+    wd->has_image = false;
+    {
+        const uint8_t* body = (const uint8_t*)j->buf;
+        char* sep = strstr(j->buf, "\r\n\r\n");
+        if (sep) body = (const uint8_t*)(sep + 4);
+        int blen = j->len - (int)((const char*)body - j->buf);
+        if (blen > 0 && image_sniff(body, blen)) {
+            if (image_decode(body, blen, &wd->image) == 0) wd->has_image = true;
+        }
+    }
+    if (wd->has_image) {
+        wd->nlines = 0;
+        wd->cache_src = j->buf; wd->cache_len = j->len;
+        wd->cache_reader = wd->reader; wd->cache_cpl = cpl;
+        return;                                   // image branch: no text layout
+    }
+
     if (wd->reader) {
         // Reader view: skip the headers, then strip markup from the body,
         // recording anchors as links as it goes.
@@ -514,7 +539,59 @@ static void web_paint(gui_window_t* win) {
 
     web_refresh_cache(wd, cpl);
 
-    if (wd->job && wd->job->state == HTTP_STATE_DONE && wd->nlines > 0) {
+    if (wd->has_image && wd->job && wd->job->state == HTTP_STATE_DONE) {
+        image_t* im = &wd->image;
+
+        int avail_w = (w - 20) - 12;                 // panel minus scrollbar
+        if (avail_w < 16) avail_w = 16;
+        int sw = im->width, sh = im->height;
+        if (sw > avail_w) { sh = (int)((long)sh * avail_w / sw); sw = avail_w; }
+        if (sh < 1) sh = 1;
+
+        int page = view_h - 6;
+        if (wd->scroll > sh - 1) wd->scroll = sh - 1;
+        if (wd->scroll < 0) wd->scroll = 0;
+
+        int draw_x  = ox + view_x + 6;
+        int draw_y0 = oy + view_y + 4;
+
+        // Column map (screen column -> source column) so the inner loop has no
+        // divide. Bounded by the panel width.
+        static int xmap[1920];
+        int cols = sw < (int)(sizeof(xmap) / sizeof(xmap[0])) ? sw
+                                                              : (int)(sizeof(xmap) / sizeof(xmap[0]));
+        for (int sx = 0; sx < cols; sx++) xmap[sx] = (int)((long)sx * im->width / sw);
+
+        for (int r = 0; r < page; r++) {
+            int scaled_y = wd->scroll + r;
+            if (scaled_y >= sh) break;
+            int iy = (int)((long)scaled_y * im->height / sh);
+            if (iy >= im->height) break;
+            const uint32_t* srow = im->pixels + (long)iy * im->width;
+            int py = draw_y0 + r;
+            for (int sx = 0; sx < cols; sx++) {
+                uint32_t px = srow[xmap[sx]];
+                uint8_t a = (uint8_t)(px >> 24);
+                uint32_t rgb = 0xFF000000u | (px & 0x00FFFFFFu);
+                uint32_t col = (a == 255) ? rgb
+                             : gui_color_alpha_blend(GUI_THEME_BG_DARK, rgb, a);
+                gui_gfx_draw_pixel(draw_x + sx, py, col);
+            }
+        }
+
+        gui_scrollbar(4, w - 18, view_y, view_h, &wd->scroll, sh, page);
+
+        if (in->focus_id != WEB_URL_FIELD) {
+            if (in->key == KEY_DOWN)           wd->scroll += 16;
+            else if (in->key == KEY_UP)        wd->scroll -= 16;
+            else if (in->key == KEY_PAGE_DOWN) wd->scroll += page;
+            else if (in->key == KEY_PAGE_UP)   wd->scroll -= page;
+        }
+
+        char hint[48];
+        snprintf(hint, sizeof(hint), "image  %dx%d", im->width, im->height);
+        gui_label_aligned(0, bar_y, w - 12, hint, GUI_THEME_ACCENT, GUI_ALIGN_RIGHT);
+    } else if (wd->job && wd->job->state == HTTP_STATE_DONE && wd->nlines > 0) {
         if (wd->scroll > wd->nlines - 1) wd->scroll = wd->nlines - 1;
         if (wd->scroll < 0) wd->scroll = 0;
 
@@ -613,6 +690,7 @@ static void web_event(gui_window_t* win, const gui_event_t* ev) {
     if (ev->type == GUI_EVENT_CLOSE && win->user_data) {
         web_data_t* wd = (web_data_t*)win->user_data;
         if (wd->job) http_fetch_release(wd->job);   // safe mid-fetch
+        if (wd->has_image) image_free(&wd->image);
         if (wd->text) kfree(wd->text);
         kfree(wd);
         win->user_data = NULL;
