@@ -9,6 +9,7 @@
  */
 #include <lib/image.h>
 #include <lib/inflate.h>
+#include <lib/jpeg.h>
 #include <lib/string.h>
 #include <mm/kmalloc.h>
 
@@ -19,6 +20,7 @@ static const uint8_t png_sig[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a 
 
 bool image_sniff(const uint8_t* d, unsigned len) {
     if (len >= 8 && memcmp(d, png_sig, 8) == 0) return true;
+    if (len >= 3 && d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF) return true;  // JPEG
     if (len >= 2 && d[0] == 'B' && d[1] == 'M') return true;
     return false;
 }
@@ -267,6 +269,8 @@ int image_decode(const uint8_t* data, unsigned len, image_t* img) {
     img->pixels = NULL;
 
     if (len >= 8 && memcmp(data, png_sig, 8) == 0) return decode_png(data, len, img);
+    if (len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+        return jpeg_decode(data, len, img);
     if (len >= 2 && data[0] == 'B' && data[1] == 'M') return decode_bmp(data, len, img);
     return -1;
 }
