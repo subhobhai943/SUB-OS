@@ -273,6 +273,26 @@ Download precompiled kernel binaries and bootable disk images from GitHub:
 
 ---
 
+## 📚 Documentation
+
+| Document | What's inside |
+|---|---|
+| 📝 **[Contributing Guide](docs/CONTRIBUTING.md)** | How to build, code style, kernel gotchas, commit & PR conventions |
+| 🔒 **[Security Policy](docs/SECURITY.md)** | Supported versions, how to report a vulnerability, known caveats |
+| 🗺️ **[Roadmap](docs/ROADMAP.md)** | What shipped in v1.0.0 and what's planned next |
+| 🤖 **[Autonomous Dev Roadmap](docs/AUTODEV_ROADMAP.md)** | Fine-grained per-session engineering backlog |
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read the **[Contributing Guide](docs/CONTRIBUTING.md)**
+before opening a pull request, and see the **[Roadmap](docs/ROADMAP.md)** for
+where help is most valuable. Found a security issue? Follow the
+**[Security Policy](docs/SECURITY.md)** — do not open a public issue.
+
+---
+
 ## 📄 License
 
 SUB-OS is distributed under the open-source **MIT License**. See [`LICENSE`](LICENSE) for details.
