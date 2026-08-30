@@ -1,13 +1,10 @@
+<div align="center">
+
+<img src="assets/logo_SUB_OS.png" alt="SUB-OS logo" width="240" height="240" />
+
 # SUB-OS: Modular Monolithic Linux-Compatible Operating System
 
-```text
-   _____ _    _ ____          ____   _____ 
-  / ____| |  | |  _ \        / __ \ / ____|
- | (___ | |  | | |_) |______| |  | | (___  
-  \___ \| |  | |  _ <|______| |  | |\___ \ 
-  ____) | |__| | |_) |      | |__| |____) |
- |_____/ \____/|____/        \____/|_____/ 
-```
+</div>
 
 [![Architectures](https://img.shields.io/badge/arch-x86__64%20%7C%20aarch64%20%7C%20armv8i-blue.svg?style=flat-square)]()
 [![Kernel](https://img.shields.io/badge/kernel-Modular%20Monolithic-red.svg?style=flat-square)]()
@@ -15,8 +12,8 @@
 [![Rust Layer](https://img.shields.io/badge/rust-Rust--for--SUB--OS%20no__std-orange.svg?style=flat-square)]()
 [![SUB Language](https://img.shields.io/badge/sub--lang-Native%20%2B%20In--Kernel%20VM-blueviolet.svg?style=flat-square)]()
 [![Configuration](https://img.shields.io/badge/config-Linux%20Kconfig%20lxdialog%20TUI-cyan.svg?style=flat-square)]()
-[![Version](https://img.shields.io/badge/version-v0.2.0--lts-purple.svg?style=flat-square)]()
-[![Release](https://img.shields.io/badge/release-v0.0.1--beta-brightgreen.svg?style=flat-square)](https://github.com/subhobhai943/SUB-OS/releases/tag/v0.0.1-beta)
+[![Version](https://img.shields.io/badge/version-v1.0.0--stable-purple.svg?style=flat-square)]()
+[![Release](https://img.shields.io/badge/release-v1.0.0%20stable-brightgreen.svg?style=flat-square)](https://github.com/subhobhai943/SUB-OS/releases/tag/v1.0.0)
 [![Userland](https://img.shields.io/badge/userland-LazyBox%20%2B%20Nano%20%2B%20Sh-orange.svg?style=flat-square)]()
 [![Networking](https://img.shields.io/badge/network-TCP%2FIP%20%7C%20SSHD%20%7C%20HTTPD%20%7C%20NetFilter-green.svg?style=flat-square)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg?style=flat-square)](LICENSE)
@@ -272,7 +269,7 @@ make run-vnc         # Headless: VNC server on localhost:5900
 ## 📦 Official Release
 
 Download precompiled kernel binaries and bootable disk images from GitHub:
-👉 **[SUB-OS v0.0.1-beta Release](https://github.com/subhobhai943/SUB-OS/releases/tag/v0.0.1-beta)**
+👉 **[SUB-OS v1.0.0 — First Stable Release](https://github.com/subhobhai943/SUB-OS/releases/tag/v1.0.0)**
 
 ---
 
