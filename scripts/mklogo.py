@@ -4,7 +4,7 @@
 Emits init/logo_data.c: a 4-bit palette-indexed bitmap plus the ARGB palette
 and an ASCII-art rendition used before the framebuffer is up.
 
-    python3 scripts/mklogo.py ~/Pictures/logo_SUB.png
+    python3 scripts/mklogo.py assets/logo_SUB_OS.png
 
 Re-run this whenever the source artwork changes; init/logo_data.c is generated
 and should not be hand-edited.
