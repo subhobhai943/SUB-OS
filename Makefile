@@ -4,6 +4,14 @@
 # Features: Linux Kconfig TUI (make configure / make menuconfig), dynamic Kbuild
 # =============================================================================
 
+# Kernel version, Linux-style. NAME is the release codename; keep these in sync
+# with include/init/version.h.
+VERSION = 1
+PATCHLEVEL = 0
+SUBLEVEL = 0
+EXTRAVERSION = -stable
+NAME = Titan
+
 -include .config
 
 # Architecture Selection (Default: x86_64)
